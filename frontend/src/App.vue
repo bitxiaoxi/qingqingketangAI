@@ -229,9 +229,6 @@
               <h2>学费管理</h2>
               <small>当前学费指标概览</small>
             </div>
-            <button class="ghost" @click="loadTuitionOverview" :disabled="tuitionLoading">
-              刷新数据
-            </button>
           </div>
           <p v-if="tuitionError" class="panel__helper error">{{ tuitionError }}</p>
           <p v-else-if="tuitionLoading" class="panel__helper">学费数据加载中…</p>
