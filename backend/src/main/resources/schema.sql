@@ -34,6 +34,27 @@ CREATE TABLE IF NOT EXISTS student_schedules (
         ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='学生课表安排';
 
+-- 销课明细表：记录每节课实际消耗的缴费批次与单价
+CREATE TABLE IF NOT EXISTS student_lesson_consumptions (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '自增主键',
+    schedule_id BIGINT NOT NULL UNIQUE COMMENT '排课ID',
+    student_id BIGINT NOT NULL COMMENT '学生ID',
+    payment_id BIGINT NOT NULL COMMENT '对应缴费批次ID',
+    lesson_price DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '本节课单价快照',
+    consumed_at DATETIME NOT NULL COMMENT '销课时间',
+    CONSTRAINT fk_lesson_consumption_schedule
+        FOREIGN KEY (schedule_id) REFERENCES student_schedules(id)
+        ON DELETE CASCADE,
+    CONSTRAINT fk_lesson_consumption_student
+        FOREIGN KEY (student_id) REFERENCES students(id)
+        ON DELETE CASCADE,
+    CONSTRAINT fk_lesson_consumption_payment
+        FOREIGN KEY (payment_id) REFERENCES student_payments(id)
+        ON DELETE CASCADE,
+    INDEX idx_lesson_consumption_student (student_id),
+    INDEX idx_lesson_consumption_payment (payment_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='学生销课明细';
+
 -- 学生剩余课时表：记录可排课的剩余节数
 CREATE TABLE IF NOT EXISTS student_lesson_balances (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '自增主键',

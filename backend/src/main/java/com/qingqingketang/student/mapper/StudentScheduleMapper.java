@@ -17,4 +17,13 @@ public interface StudentScheduleMapper extends BaseMapper<StudentSchedule> {
 
     @Select("SELECT * FROM student_schedules WHERE start_time < #{end} AND end_time > #{start} ORDER BY start_time LIMIT 1")
     StudentSchedule findFirstConflict(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    @Select({
+            "SELECT s.*",
+            "FROM student_schedules s",
+            "LEFT JOIN student_lesson_consumptions c ON c.schedule_id = s.id",
+            "WHERE s.status = 'COMPLETED' AND c.id IS NULL",
+            "ORDER BY s.student_id ASC, s.start_time ASC, s.id ASC"
+    })
+    List<StudentSchedule> findCompletedWithoutConsumption();
 }

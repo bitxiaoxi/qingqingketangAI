@@ -29,6 +29,22 @@ public interface StudentPaymentMapper extends BaseMapper<StudentPayment> {
     })
     List<PaymentSummary> sumByStudentIds(@Param("ids") List<Long> ids);
 
+    @Select({
+            "SELECT p.*",
+            "FROM student_payments p",
+            "LEFT JOIN (",
+            "    SELECT payment_id, COUNT(*) AS consumedCount",
+            "    FROM student_lesson_consumptions",
+            "    GROUP BY payment_id",
+            ") c ON c.payment_id = p.id",
+            "WHERE p.student_id = #{studentId}",
+            "  AND p.lesson_count > 0",
+            "  AND COALESCE(c.consumedCount, 0) < p.lesson_count",
+            "ORDER BY p.paid_at ASC, p.id ASC",
+            "LIMIT 1 FOR UPDATE"
+    })
+    StudentPayment findNextConsumablePayment(@Param("studentId") Long studentId);
+
     @Select("SELECT COALESCE(SUM(tuition_paid),0) FROM student_payments")
     BigDecimal totalTuitionPaid();
 }

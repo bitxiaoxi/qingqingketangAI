@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.qingqingketang.student.entity.Student;
 import com.qingqingketang.student.entity.StudentLessonBalance;
 import com.qingqingketang.student.entity.StudentPayment;
+import com.qingqingketang.student.mapper.StudentLessonConsumptionMapper;
 import com.qingqingketang.student.mapper.StudentPaymentMapper;
 import com.qingqingketang.student.service.StudentPaymentService;
 import com.qingqingketang.student.service.StudentLessonBalanceService;
@@ -43,15 +44,18 @@ public class StudentController {
     private final StudentPaymentService studentPaymentService;
     private final StudentPaymentMapper studentPaymentMapper;
     private final StudentLessonBalanceService studentLessonBalanceService;
+    private final StudentLessonConsumptionMapper studentLessonConsumptionMapper;
 
     public StudentController(StudentService studentService,
                              StudentPaymentService studentPaymentService,
                              StudentPaymentMapper studentPaymentMapper,
-                             StudentLessonBalanceService studentLessonBalanceService) {
+                             StudentLessonBalanceService studentLessonBalanceService,
+                             StudentLessonConsumptionMapper studentLessonConsumptionMapper) {
         this.studentService = studentService;
         this.studentPaymentService = studentPaymentService;
         this.studentPaymentMapper = studentPaymentMapper;
         this.studentLessonBalanceService = studentLessonBalanceService;
+        this.studentLessonConsumptionMapper = studentLessonConsumptionMapper;
     }
 
     /**
@@ -89,9 +93,11 @@ public class StudentController {
     @GetMapping("/tuition-overview")
     public TuitionOverview getTuitionOverview() {
         TuitionOverview overview = new TuitionOverview();
-        overview.setTotalReceived(studentPaymentMapper.totalTuitionPaid());
-        overview.setTotalConsumed(null);
-        overview.setTotalPending(null);
+        BigDecimal totalReceived = studentPaymentMapper.totalTuitionPaid();
+        BigDecimal totalConsumed = studentLessonConsumptionMapper.totalConsumedAmount();
+        overview.setTotalReceived(totalReceived);
+        overview.setTotalConsumed(totalConsumed);
+        overview.setTotalPending(totalReceived.subtract(totalConsumed));
         return overview;
     }
 
