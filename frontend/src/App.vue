@@ -21,8 +21,10 @@
           </div>
           <span class="today-date">{{ todayLabel }}</span>
         </div>
-        <ul class="today-list">
-          <li v-for="item in todayPlan" :key="item.time + item.title">
+        <div v-if="todayPlanLoading" class="panel__helper">今日安排加载中…</div>
+        <p v-else-if="todayPlanError" class="panel__helper error">{{ todayPlanError }}</p>
+        <ul v-else class="today-list">
+          <li v-for="item in todayPlan" :key="item.id">
             <div class="today-node">
               <p class="today-time">{{ item.time }}</p>
               <p class="today-title">{{ item.title }}</p>
@@ -429,16 +431,6 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
   day: 'numeric',
   weekday: 'long'
 }).format(new Date());
-const todayPlan = [
-  { time: '09:00', title: '家长回访：李小龙家长', owner: '教务 · 王老师', location: '电话', state: 'pending', stateLabel: '待跟进' },
-  { time: '14:00', title: '初三英语模考讲评', owner: '教学 · 陈老师', location: '3F 智慧教室', state: 'progress', stateLabel: '进行中' },
-  { time: '19:30', title: '高一晚自习巡课', owner: '班主任 · 刘老师', location: '云直播间', state: 'ready', stateLabel: '待开始' }
-];
-const feimanFocus = [
-  { student: '何思源', topic: '物理 · 能量守恒再讲', mentor: '刘老师', progress: 65 },
-  { student: '江语桐', topic: '数学 · 二次函数举例', mentor: '孙老师', progress: 45 },
-  { student: '吴浩然', topic: '化学 · 离子反应', mentor: '李老师', progress: 82 }
-];
 const trialLeads = ref([]);
 const trialLoading = ref(false);
 const trialListError = ref('');
@@ -450,6 +442,70 @@ const trialForm = reactive({
 });
 const trialSubmitting = ref(false);
 const trialSuccess = ref('');
+
+const todayPlanLoading = computed(() => trialLoading.value || scheduleLoading.value);
+const todayPlanError = computed(() => {
+  if (trialListError.value) return trialListError.value;
+  if (scheduleError.value) return scheduleError.value;
+  return '';
+});
+const todayPlan = computed(() => {
+  if (todayPlanError.value) {
+    return [];
+  }
+  const todayKey = formatDateParam(new Date());
+  const events = [];
+
+  trialLeads.value
+    .filter((lead) => isSameDay(lead.trialTime, todayKey))
+    .forEach((lead) => {
+      const timestamp = toTimestamp(lead.trialTime);
+      const { state, label } = resolvePlanState(lead.trialTime);
+      events.push({
+        id: `trial-${lead.id ?? timestamp}`,
+        time: formatClock(lead.trialTime),
+        title: `${lead.name ?? '未命名'} · ${lead.grade ?? '未填写年级'} 试听`,
+        owner: '试听预约',
+        location: lead.grade ?? '--',
+        state,
+        stateLabel: label,
+        sortKey: timestamp ?? Number.MAX_SAFE_INTEGER
+      });
+    });
+
+  weekSchedule.value
+    .filter((slot) => isSameDay(slot.startTime, todayKey))
+    .forEach((slot) => {
+      const timestamp = toTimestamp(slot.startTime);
+      const { state, label } = resolvePlanState(slot.startTime, slot.endTime);
+      events.push({
+        id: `schedule-${slot.id ?? timestamp}`,
+        time: formatTimeRange(slot.startTime, slot.endTime),
+        title: `${slot.studentName ?? '未命名'} · ${slot.subject ?? '课程'}`,
+        owner: '排课',
+        location: formatWeekday(slot.startTime),
+        state,
+        stateLabel: label,
+        sortKey: timestamp ?? Number.MAX_SAFE_INTEGER
+      });
+    });
+
+  events.sort((a, b) => (a.sortKey ?? 0) - (b.sortKey ?? 0));
+  if (!events.length) {
+    return [
+      {
+        id: 'empty',
+        time: '--',
+        title: '今日暂无试听或排课安排',
+        owner: '系统提示',
+        location: '--',
+        state: 'ready',
+        stateLabel: '空闲'
+      }
+    ];
+  }
+  return events.map(({ sortKey, ...rest }) => rest);
+});
 
 const isRenewValid = computed(() => {
   return (
@@ -881,6 +937,38 @@ const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
   minute: '2-digit',
   hour12: false
 });
+
+const formatClock = (value) => {
+  if (!value) return '--';
+  return timeFormatter.format(new Date(value));
+};
+
+const toTimestamp = (value) => {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isNaN(ms) ? null : ms;
+};
+
+const resolvePlanState = (start, end) => {
+  const startMs = toTimestamp(start);
+  const endMs = end ? toTimestamp(end) : startMs;
+  if (startMs === null) {
+    return { state: 'pending', label: '待确认' };
+  }
+  const now = Date.now();
+  if (now < startMs) {
+    return { state: 'ready', label: '待开始' };
+  }
+  if (endMs !== null && now <= endMs) {
+    return { state: 'progress', label: '进行中' };
+  }
+  return { state: 'pending', label: '待跟进' };
+};
+
+const isSameDay = (value, dateKey) => {
+  if (!value) return false;
+  return formatDateParam(value) === dateKey;
+};
 
 const formatWeekday = (value) => {
   if (!value) return '--';
