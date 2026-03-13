@@ -52,16 +52,21 @@
               :key="item.id"
               class="today-item"
               :data-completed="item.isCompleted"
-              :data-placeholder="!item.toggleable"
+              :data-placeholder="item.type === 'placeholder'"
+              :data-loading="item.isLoading"
             >
               <button
                 class="today-toggle"
                 type="button"
                 :aria-pressed="item.isCompleted"
-                :disabled="!item.toggleable"
-                @click="toggleTodayItem(item.id)"
+                :aria-label="item.actionLabel"
+                :title="item.actionLabel"
+                :data-loading="item.isLoading"
+                :disabled="!item.isInteractive || item.isLoading"
+                @click="handleTodayItemClick(item)"
               >
-                <span class="today-toggle__mark"></span>
+                <span v-if="item.isLoading" class="today-toggle__spinner"></span>
+                <span v-else class="today-toggle__mark"></span>
               </button>
               <div class="today-node">
                 <div class="today-node__meta">
@@ -73,6 +78,8 @@
               </div>
             </li>
           </ul>
+          <p v-if="todayActionError" class="panel__helper error">{{ todayActionError }}</p>
+          <p v-else-if="todayActionMessage" class="panel__helper success">{{ todayActionMessage }}</p>
         </article>
 
         <article class="panel tuition summary-panel">
@@ -82,22 +89,24 @@
               <h2>学费管理</h2>
             </div>
           </div>
-          <p v-if="tuitionError" class="panel__helper error">{{ tuitionError }}</p>
-          <p v-else-if="tuitionLoading" class="panel__helper">学费数据加载中…</p>
-          <div v-else class="tuition-stats">
+          <p v-if="tuitionError && !hasTuitionOverview" class="panel__helper error">{{ tuitionError }}</p>
+          <p v-else-if="tuitionLoading && !hasTuitionOverview" class="panel__helper">学费数据加载中…</p>
+          <div v-else class="tuition-stats" :data-animating="tuitionHighlighting">
             <div class="tuition-stat">
               <p>已收总学费</p>
-              <strong>{{ formatAmount(tuitionOverview.totalReceived) }}</strong>
+              <strong>{{ formatAmount(displayedTuitionOverview.totalReceived) }}</strong>
             </div>
             <div class="tuition-stat">
               <p>已销课学费</p>
-              <strong>{{ formatAmount(tuitionOverview.totalConsumed) }}</strong>
+              <strong>{{ formatAmount(displayedTuitionOverview.totalConsumed) }}</strong>
             </div>
             <div class="tuition-stat">
               <p>待销课学费</p>
-              <strong>{{ formatAmount(tuitionOverview.totalPending) }}</strong>
+              <strong>{{ formatAmount(displayedTuitionOverview.totalPending) }}</strong>
             </div>
           </div>
+          <p v-if="tuitionLoading && hasTuitionOverview" class="panel__helper tuition-sync">学费数据同步中…</p>
+          <p v-else-if="tuitionError && hasTuitionOverview" class="panel__helper error tuition-sync">{{ tuitionError }}</p>
         </article>
       </section>
 
@@ -238,15 +247,15 @@
                     </td>
                     <td>
                       <button
-                        v-if="slot.canComplete"
+                        v-if="slot.canToggle"
                         type="button"
                         class="complete-btn"
-                        :disabled="isCompleting(slot.id)"
-                        @click="markScheduleCompleted(slot.id)"
+                        :disabled="!slot.scheduleId || isCompleting(slot.scheduleId)"
+                        @click="toggleScheduleCompletion(slot.scheduleId, slot.isCompleted, { source: 'schedule' })"
                       >
-                        {{ isCompleting(slot.id) ? '处理中...' : '销课' }}
+                        {{ slot.scheduleId && isCompleting(slot.scheduleId) ? '处理中...' : slot.actionLabel }}
                       </button>
-                      <span v-else class="complete-placeholder">已销课</span>
+                      <span v-else class="complete-placeholder">不可操作</span>
                     </td>
                   </tr>
                 </tbody>
@@ -465,7 +474,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import logo from '../img/logo.png';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8080';
@@ -492,8 +501,15 @@ const tuitionOverview = ref({
   totalConsumed: null,
   totalPending: null
 });
+const displayedTuitionOverview = ref({
+  totalReceived: null,
+  totalConsumed: null,
+  totalPending: null
+});
 const tuitionLoading = ref(false);
 const tuitionError = ref('');
+const tuitionHighlighting = ref(false);
+const tuitionMetricKeys = ['totalReceived', 'totalConsumed', 'totalPending'];
 const renewForm = reactive({
   studentId: '',
   tuitionPaid: '',
@@ -546,6 +562,8 @@ const todayScheduleLoading = ref(false);
 const todayScheduleError = ref('');
 const scheduleActionMessage = ref('');
 const scheduleActionError = ref('');
+const todayActionMessage = ref('');
+const todayActionError = ref('');
 const completingScheduleIds = ref(new Set());
 const todayLabel = new Intl.DateTimeFormat('zh-CN', {
   month: 'long',
@@ -564,6 +582,12 @@ const trialForm = reactive({
 const trialSubmitting = ref(false);
 const trialSuccess = ref('');
 const todayCompletionIds = ref(new Set());
+const feedbackTimeoutIds = {
+  today: 0,
+  schedule: 0
+};
+let tuitionAnimationFrameId = 0;
+let tuitionHighlightTimeoutId = 0;
 
 const todayPlanLoading = computed(() => trialLoading.value || todayScheduleLoading.value);
 const todayPlanError = computed(() => {
@@ -582,13 +606,19 @@ const todayPlan = computed(() => {
     .filter((lead) => isSameDay(lead.trialTime, todayKey))
     .forEach((lead) => {
       const timestamp = toTimestamp(lead.trialTime);
+      const itemId = `trial-${lead.id ?? timestamp}`;
       events.push({
-        id: `trial-${lead.id ?? timestamp}`,
+        id: itemId,
+        type: 'trial',
         time: formatClock(lead.trialTime),
         title: `${lead.name ?? '未命名'} · ${lead.grade ?? '未填写年级'} 试听`,
         category: '试听',
         detail: `试听预约 · ${lead.grade ?? '未填写年级'}`,
         toggleable: true,
+        isInteractive: true,
+        isCompleted: todayCompletionIds.value.has(itemId),
+        isLoading: false,
+        actionLabel: todayCompletionIds.value.has(itemId) ? '取消试听完成' : '标记试听完成',
         sortKey: timestamp ?? Number.MAX_SAFE_INTEGER
       });
     });
@@ -597,13 +627,23 @@ const todayPlan = computed(() => {
     .filter((slot) => isSameDay(slot.startTime, todayKey))
     .forEach((slot) => {
       const timestamp = toTimestamp(slot.startTime);
+      const scheduleId = slot.id ?? null;
+      const status = String(slot.status ?? 'PLANNED').toUpperCase();
+      const isCompleted = status === 'COMPLETED';
+      const isLoading = scheduleId ? isCompleting(scheduleId) : false;
       events.push({
-        id: `schedule-${slot.id ?? timestamp}`,
+        id: `schedule-${scheduleId ?? timestamp}`,
+        type: 'schedule',
+        scheduleId,
         time: formatTimeRange(slot.startTime, slot.endTime),
         title: `${slot.studentName ?? '未命名'} · ${slot.subject ?? '课程'}`,
-        category: '课程',
-        detail: `正式排课 · ${formatWeekday(slot.startTime)}`,
+        category: '正式课',
+        detail: `正式课程 · ${formatWeekday(slot.startTime)} · ${isCompleted ? '已销课' : '待销课'}`,
         toggleable: true,
+        isInteractive: Boolean(scheduleId),
+        isCompleted,
+        isLoading,
+        actionLabel: isCompleted ? '撤销销课' : '执行销课',
         sortKey: timestamp ?? Number.MAX_SAFE_INTEGER
       });
     });
@@ -613,18 +653,20 @@ const todayPlan = computed(() => {
     return [
       {
         id: 'empty',
+        type: 'placeholder',
         time: '今日',
         title: '今日暂无试听或排课安排',
         category: '空白',
         detail: '当前日程空闲，可在下方模块继续录入安排',
-        toggleable: false
+        toggleable: false,
+        isInteractive: false,
+        isCompleted: false,
+        isLoading: false,
+        actionLabel: '暂无可操作事项'
       }
     ];
   }
-  return events.map(({ sortKey, ...rest }) => ({
-    ...rest,
-    isCompleted: rest.toggleable ? todayCompletionIds.value.has(rest.id) : false
-  }));
+  return events.map(({ sortKey, ...rest }) => rest);
 });
 
 const actionableTodayCount = computed(() => {
@@ -647,6 +689,10 @@ const todayProgressLabel = computed(() => {
   }
   const completedCount = todayPlan.value.filter((item) => item.toggleable && item.isCompleted).length;
   return `${completedCount}/${actionableTodayCount.value} 完成`;
+});
+
+const hasTuitionOverview = computed(() => {
+  return tuitionMetricKeys.some((key) => displayedTuitionOverview.value[key] !== null);
 });
 
 const isRenewValid = computed(() => {
@@ -681,12 +727,14 @@ const isFormValid = computed(() => {
 const formatCurrency = (value, fractionDigits = 0) => {
   const amount = Number(value ?? 0);
   if (Number.isNaN(amount)) {
-    return (0).toFixed(fractionDigits);
+    return '0';
   }
-  if (fractionDigits > 0) {
-    return amount.toFixed(fractionDigits);
-  }
-  return Math.round(amount).toString();
+  const normalized = Math.round(amount * 100) / 100;
+  const digits = fractionDigits > 0 ? fractionDigits : (Number.isInteger(normalized) ? 0 : 2);
+  return normalized.toLocaleString('zh-CN', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: Math.max(2, digits)
+  });
 };
 
 const formatTimestamp = (value) => {
@@ -711,18 +759,127 @@ const formatAmount = (value) => {
   return `${formatCurrency(amount)} 元`;
 };
 
+const toAmountNumber = (value) => {
+  const amount = Number(value ?? 0);
+  return Number.isNaN(amount) ? 0 : amount;
+};
+
+const stopTuitionAnimation = () => {
+  if (tuitionAnimationFrameId) {
+    window.cancelAnimationFrame(tuitionAnimationFrameId);
+    tuitionAnimationFrameId = 0;
+  }
+};
+
+const pulseTuitionStats = (duration = 1200) => {
+  tuitionHighlighting.value = true;
+  if (tuitionHighlightTimeoutId) {
+    window.clearTimeout(tuitionHighlightTimeoutId);
+  }
+  tuitionHighlightTimeoutId = window.setTimeout(() => {
+    tuitionHighlighting.value = false;
+    tuitionHighlightTimeoutId = 0;
+  }, duration);
+};
+
+const clearFeedbackTimer = (scope) => {
+  if (feedbackTimeoutIds[scope]) {
+    window.clearTimeout(feedbackTimeoutIds[scope]);
+    feedbackTimeoutIds[scope] = 0;
+  }
+};
+
+const queueActionMessage = (scope, message) => {
+  const target = scope === 'today' ? todayActionMessage : scheduleActionMessage;
+  clearFeedbackTimer(scope);
+  target.value = message;
+  feedbackTimeoutIds[scope] = window.setTimeout(() => {
+    target.value = '';
+    feedbackTimeoutIds[scope] = 0;
+  }, 2000);
+};
+
+const clearActionFeedback = () => {
+  clearFeedbackTimer('today');
+  clearFeedbackTimer('schedule');
+  todayActionMessage.value = '';
+  todayActionError.value = '';
+  scheduleActionMessage.value = '';
+  scheduleActionError.value = '';
+};
+
+const applyTuitionOverview = (overview) => {
+  const next = {
+    totalReceived: toAmountNumber(overview?.totalReceived),
+    totalConsumed: toAmountNumber(overview?.totalConsumed),
+    totalPending: toAmountNumber(overview?.totalPending)
+  };
+  const start = tuitionMetricKeys.reduce((result, key) => {
+    const currentValue = displayedTuitionOverview.value[key];
+    result[key] = currentValue === null ? 0 : toAmountNumber(currentValue);
+    return result;
+  }, {});
+  const precisionMap = tuitionMetricKeys.reduce((result, key) => {
+    result[key] = Number.isInteger(start[key]) && Number.isInteger(next[key]) ? 0 : 2;
+    return result;
+  }, {});
+  const hasChanged = tuitionMetricKeys.some((key) => Math.abs(start[key] - next[key]) >= 0.01);
+
+  tuitionOverview.value = next;
+
+  if (!hasChanged) {
+    stopTuitionAnimation();
+    displayedTuitionOverview.value = next;
+    tuitionHighlighting.value = false;
+    return;
+  }
+
+  stopTuitionAnimation();
+  pulseTuitionStats();
+
+  const duration = 900;
+  const animationStart = performance.now();
+  const step = (now) => {
+    const progress = Math.min((now - animationStart) / duration, 1);
+    const easedProgress = 1 - Math.pow(1 - progress, 3);
+    const frame = tuitionMetricKeys.reduce((result, key) => {
+      const rawValue = start[key] + (next[key] - start[key]) * easedProgress;
+      result[key] = precisionMap[key] === 0
+        ? Math.round(rawValue)
+        : Math.round(rawValue * 100) / 100;
+      return result;
+    }, {});
+    displayedTuitionOverview.value = frame;
+
+    if (progress < 1) {
+      tuitionAnimationFrameId = window.requestAnimationFrame(step);
+      return;
+    }
+
+    displayedTuitionOverview.value = next;
+    tuitionAnimationFrameId = 0;
+  };
+
+  tuitionAnimationFrameId = window.requestAnimationFrame(step);
+};
+
 const weekScheduleRows = computed(() => {
   return weekSchedule.value.map((slot) => {
-    const status = slot.status ?? 'PLANNED';
+    const status = String(slot.status ?? 'PLANNED').toUpperCase();
+    const scheduleId = slot.id ?? null;
+    const isCompleted = status === 'COMPLETED';
     return {
-      id: slot.id ?? `${slot.studentId}-${slot.startTime}`,
+      id: scheduleId ?? `${slot.studentId}-${slot.startTime}`,
+      scheduleId,
       weekday: formatWeekday(slot.startTime),
       subject: slot.subject ?? '英语',
       timeRange: formatTimeRange(slot.startTime, slot.endTime),
       student: slot.studentName ?? '',
       status,
-      statusLabel: status === 'COMPLETED' ? '已完成' : '待上课',
-      canComplete: status !== 'COMPLETED'
+      isCompleted,
+      statusLabel: isCompleted ? '已销课' : '待上课',
+      canToggle: Boolean(scheduleId),
+      actionLabel: isCompleted ? '撤销销课' : '销课'
     };
   });
 });
@@ -802,6 +959,20 @@ const toggleTodayItem = (itemId) => {
   }
   todayCompletionIds.value = next;
   saveTodayCompletionIds(next);
+};
+
+const handleTodayItemClick = async (item) => {
+  if (!item || !item.toggleable) {
+    return;
+  }
+  if (item.type === 'schedule') {
+    if (!item.scheduleId || item.isLoading) {
+      return;
+    }
+    await toggleScheduleCompletion(item.scheduleId, item.isCompleted, { source: 'today' });
+    return;
+  }
+  toggleTodayItem(item.id);
 };
 
 const sortWeekdayValues = (values) => {
@@ -906,8 +1077,8 @@ const submitRenew = async () => {
       }
       throw new Error(message);
     }
-    renewSuccess.value = '续费已录入';
     resetRenewForm();
+    renewSuccess.value = '续费已录入';
     await loadStudents();
     await loadTuitionOverview();
   } catch (error) {
@@ -925,7 +1096,7 @@ const loadTuitionOverview = async () => {
     if (!response.ok) {
       throw new Error('学费数据加载失败');
     }
-    tuitionOverview.value = await response.json();
+    applyTuitionOverview(await response.json());
   } catch (error) {
     tuitionError.value = normalizeError(error, '无法加载学费概览');
   } finally {
@@ -1009,6 +1180,7 @@ const submitStudent = async () => {
     } else {
       await loadStudents();
     }
+    await loadTuitionOverview();
 
     formSuccess.value = '学生信息已录入';
     setTimeout(() => {
@@ -1095,6 +1267,16 @@ onMounted(() => {
   loadWeekSchedule();
   loadTodayWeekSchedule();
   loadTrials();
+});
+
+onBeforeUnmount(() => {
+  stopTuitionAnimation();
+  if (tuitionHighlightTimeoutId) {
+    window.clearTimeout(tuitionHighlightTimeoutId);
+    tuitionHighlightTimeoutId = 0;
+  }
+  clearFeedbackTimer('today');
+  clearFeedbackTimer('schedule');
 });
 
 const submitArrangeDraft = async () => {
@@ -1197,15 +1379,28 @@ const jumpToCurrentWeek = async () => {
   await loadWeekSchedule();
 };
 
-const markScheduleCompleted = async (scheduleId) => {
+const syncScheduleMutationResult = async (data) => {
+  if (data && data.id) {
+    weekSchedule.value = weekSchedule.value.map((slot) => (slot.id === data.id ? data : slot));
+    todayWeekSchedule.value = todayWeekSchedule.value.map((slot) => (slot.id === data.id ? data : slot));
+    return;
+  }
+  await loadWeekSchedule();
+  await loadTodayWeekSchedule();
+};
+
+const toggleScheduleCompletion = async (scheduleId, isCompleted, options = {}) => {
   if (!scheduleId) return;
-  scheduleActionMessage.value = '';
-  scheduleActionError.value = '';
+  const feedbackScope = options.source === 'today' ? 'today' : 'schedule';
+  const actionPath = isCompleted ? 'undo-complete' : 'complete';
+  const successMessage = isCompleted ? '已撤销销课' : '销课完成';
+  const errorFallback = isCompleted ? '撤销销课失败' : '销课失败';
+  clearActionFeedback();
   const pending = new Set(completingScheduleIds.value);
   pending.add(scheduleId);
   completingScheduleIds.value = pending;
   try {
-    const response = await fetch(`${API_BASE}/api/schedules/${scheduleId}/complete`, { method: 'POST' });
+    const response = await fetch(`${API_BASE}/api/schedules/${scheduleId}/${actionPath}`, { method: 'POST' });
     const text = await response.text();
     let data = null;
     if (text) {
@@ -1216,22 +1411,19 @@ const markScheduleCompleted = async (scheduleId) => {
       }
     }
     if (!response.ok) {
-      const message = data?.message ?? data?.detail ?? '销课失败';
+      const message = data?.message ?? data?.detail ?? errorFallback;
       throw new Error(message);
     }
-    if (data && data.id) {
-      weekSchedule.value = weekSchedule.value.map((slot) => (slot.id === data.id ? data : slot));
-      todayWeekSchedule.value = todayWeekSchedule.value.map((slot) => (slot.id === data.id ? data : slot));
-    } else {
-      await loadWeekSchedule();
-      await loadTodayWeekSchedule();
-    }
-    scheduleActionMessage.value = '销课完成';
-    setTimeout(() => {
-      scheduleActionMessage.value = '';
-    }, 2000);
+    await syncScheduleMutationResult(data);
+    await loadTuitionOverview();
+    queueActionMessage(feedbackScope, successMessage);
   } catch (error) {
-    scheduleActionError.value = normalizeError(error, '销课失败');
+    const message = normalizeError(error, errorFallback);
+    if (feedbackScope === 'today') {
+      todayActionError.value = message;
+    } else {
+      scheduleActionError.value = message;
+    }
   } finally {
     const next = new Set(completingScheduleIds.value);
     next.delete(scheduleId);

@@ -49,6 +49,8 @@ import java.util.stream.Collectors;
 public class StudentScheduleController {
 
     private static final String DEFAULT_SUBJECT = "英语";
+    private static final String STATUS_PLANNED = "PLANNED";
+    private static final String STATUS_COMPLETED = "COMPLETED";
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
@@ -127,7 +129,7 @@ public class StudentScheduleController {
             }
             schedule.setStartTime(slotStart);
             schedule.setEndTime(slotEnd);
-            schedule.setStatus("PLANNED");
+            schedule.setStatus(STATUS_PLANNED);
             schedule.setCreatedAt(now);
             schedules.add(schedule);
         }
@@ -240,7 +242,7 @@ public class StudentScheduleController {
         }
 
         StudentLessonConsumption consumption = studentLessonConsumptionMapper.findByScheduleId(scheduleId);
-        if (!"COMPLETED".equalsIgnoreCase(schedule.getStatus())) {
+        if (!STATUS_COMPLETED.equalsIgnoreCase(schedule.getStatus())) {
             StudentLessonBalance balance = studentLessonBalanceService.getOne(
                     Wrappers.<StudentLessonBalance>lambdaQuery().eq(StudentLessonBalance::getStudentId, schedule.getStudentId()));
             if (balance == null) {
@@ -270,7 +272,49 @@ public class StudentScheduleController {
             balance.setUpdatedAt(now);
             studentLessonBalanceService.updateById(balance);
 
-            schedule.setStatus("COMPLETED");
+            schedule.setStatus(STATUS_COMPLETED);
+            studentScheduleService.updateById(schedule);
+        }
+
+        return toView(schedule, student.getName(), consumption);
+    }
+
+    /**
+     * 撤销销课：把排课恢复为待上课，并回滚销课明细与剩余课时。
+     */
+    @PostMapping("/{scheduleId}/undo-complete")
+    @Transactional
+    public ScheduleView undoCompleteSchedule(@PathVariable Long scheduleId) {
+        StudentSchedule schedule = studentScheduleService.getById(scheduleId);
+        if (schedule == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "课程不存在");
+        }
+
+        Student student = studentService.getById(schedule.getStudentId());
+        if (student == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "关联学生不存在");
+        }
+
+        StudentLessonConsumption consumption = studentLessonConsumptionMapper.findByScheduleId(scheduleId);
+        if (STATUS_COMPLETED.equalsIgnoreCase(schedule.getStatus())) {
+            LocalDateTime now = LocalDateTime.now();
+            StudentLessonBalance balance = studentLessonBalanceService.getOne(
+                    Wrappers.<StudentLessonBalance>lambdaQuery().eq(StudentLessonBalance::getStudentId, schedule.getStudentId()));
+            if (balance == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该学生尚未录入课时信息");
+            }
+
+            int remaining = balance.getRemainingLessons() == null ? 0 : balance.getRemainingLessons();
+            balance.setRemainingLessons(remaining + 1);
+            balance.setUpdatedAt(now);
+            studentLessonBalanceService.updateById(balance);
+
+            if (consumption != null) {
+                studentLessonConsumptionService.removeById(consumption.getId());
+                consumption = null;
+            }
+
+            schedule.setStatus(STATUS_PLANNED);
             studentScheduleService.updateById(schedule);
         }
 
