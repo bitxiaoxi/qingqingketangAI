@@ -17,16 +17,16 @@
             <strong>{{ actionableTodayCount }}</strong>
             <small>{{ todayProgressLabel }}</small>
           </article>
-          <article class="hero-stat">
+          <button type="button" class="hero-stat hero-stat--button" @click="scrollToStudentsSection">
             <span class="hero-stat__label">学生档案</span>
             <strong>{{ students.length }}</strong>
             <small>当前已录入学生</small>
-          </article>
-          <article class="hero-stat">
+          </button>
+          <button type="button" class="hero-stat hero-stat--button" @click="openCurrentWeekSchedule">
             <span class="hero-stat__label">查看周排课</span>
             <strong>{{ weekScheduleRows.length }}</strong>
             <small>周课表条目数</small>
-          </article>
+          </button>
         </div>
       </div>
     </header>
@@ -41,7 +41,6 @@
             </div>
             <div class="today-card__meta">
               <span class="today-progress">{{ todayProgressLabel }}</span>
-              <span class="today-date">{{ todayLabel }}</span>
             </div>
           </div>
           <div v-if="todayPlanLoading" class="panel__helper">今日安排加载中…</div>
@@ -110,7 +109,7 @@
         </article>
       </section>
 
-      <section class="operations-grid">
+      <section ref="scheduleSectionRef" class="operations-grid">
         <article class="panel schedule schedule-panel">
           <div class="panel__header schedule-header">
             <div>
@@ -377,7 +376,7 @@
         </div>
       </section>
 
-      <section class="records-grid">
+      <section ref="studentsSectionRef" class="records-grid">
         <article class="panel students">
           <div class="panel__header">
             <div>
@@ -671,6 +670,8 @@ const trialForm = reactive({
 const trialSubmitting = ref(false);
 const trialSuccess = ref('');
 const todayCompletionIds = ref(new Set());
+const studentsSectionRef = ref(null);
+const scheduleSectionRef = ref(null);
 const feedbackTimeoutIds = {
   today: 0,
   schedule: 0
@@ -762,6 +763,23 @@ const todayPlan = computed(() => {
 const actionableTodayCount = computed(() => {
   return todayPlan.value.filter((item) => item.toggleable).length;
 });
+
+const scrollToStudentsSection = () => {
+  studentsSectionRef.value?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'start'
+  });
+};
+
+const openCurrentWeekSchedule = async () => {
+  activeScheduleTab.value = 'week';
+  await nextTick();
+  scheduleSectionRef.value?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'start'
+  });
+  await jumpToCurrentWeek();
+};
 
 const arrangeWeekdaySummary = computed(() => {
   const labels = weekdayOptions
