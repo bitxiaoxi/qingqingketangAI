@@ -7,10 +7,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import javax.validation.Valid;
 import javax.validation.constraints.NotBlank;
@@ -23,6 +26,8 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/trials")
 @CrossOrigin(origins = "http://localhost:5173", maxAge = 3600)
 public class TrialLessonController {
+
+    private static final String STATUS_PENDING = "PENDING";
 
     private final TrialLessonService trialLessonService;
 
@@ -54,8 +59,26 @@ public class TrialLessonController {
         lesson.setName(request.getName());
         lesson.setGrade(request.getGrade());
         lesson.setTrialTime(request.getTrialTime());
+        lesson.setStatus(resolveStatus(request.getStatus()));
+        lesson.setNote(request.getNote());
         lesson.setCreatedAt(LocalDateTime.now());
         trialLessonService.save(lesson);
+        return toView(lesson);
+    }
+
+    @PutMapping("/{trialId}")
+    public TrialLessonView update(@PathVariable Long trialId, @Valid @RequestBody TrialLessonRequest request) {
+        TrialLesson lesson = trialLessonService.getById(trialId);
+        if (lesson == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "试听记录不存在");
+        }
+
+        lesson.setName(request.getName());
+        lesson.setGrade(request.getGrade());
+        lesson.setTrialTime(request.getTrialTime());
+        lesson.setStatus(resolveStatus(request.getStatus()));
+        lesson.setNote(request.getNote());
+        trialLessonService.updateById(lesson);
         return toView(lesson);
     }
 
@@ -65,8 +88,14 @@ public class TrialLessonController {
         view.setName(lesson.getName());
         view.setGrade(lesson.getGrade());
         view.setTrialTime(lesson.getTrialTime());
+        view.setStatus(resolveStatus(lesson.getStatus()));
+        view.setNote(lesson.getNote());
         view.setCreatedAt(lesson.getCreatedAt());
         return view;
+    }
+
+    private String resolveStatus(String status) {
+        return (status == null || status.trim().isEmpty()) ? STATUS_PENDING : status.trim().toUpperCase();
     }
 
     public static class TrialLessonRequest {
@@ -78,6 +107,10 @@ public class TrialLessonController {
 
         @NotNull(message = "试听时间不能为空")
         private LocalDateTime trialTime;
+
+        private String status;
+
+        private String note;
 
         public String getName() {
             return name;
@@ -102,6 +135,22 @@ public class TrialLessonController {
         public void setTrialTime(LocalDateTime trialTime) {
             this.trialTime = trialTime;
         }
+
+        public String getStatus() {
+            return status;
+        }
+
+        public void setStatus(String status) {
+            this.status = status;
+        }
+
+        public String getNote() {
+            return note;
+        }
+
+        public void setNote(String note) {
+            this.note = note;
+        }
     }
 
     public static class TrialLessonView {
@@ -109,6 +158,8 @@ public class TrialLessonController {
         private String name;
         private String grade;
         private LocalDateTime trialTime;
+        private String status;
+        private String note;
         private LocalDateTime createdAt;
 
         public Long getId() {
@@ -141,6 +192,22 @@ public class TrialLessonController {
 
         public void setTrialTime(LocalDateTime trialTime) {
             this.trialTime = trialTime;
+        }
+
+        public String getStatus() {
+            return status;
+        }
+
+        public void setStatus(String status) {
+            this.status = status;
+        }
+
+        public String getNote() {
+            return note;
+        }
+
+        public void setNote(String note) {
+            this.note = note;
         }
 
         public LocalDateTime getCreatedAt() {

@@ -24,6 +24,18 @@ frontend/  # Vue 3 + Vite 前端，已含首页 UI
    ```
 5. 验证健康状态：访问 `http://localhost:8080/api/status`。
 
+### AI 排课密钥配置
+
+- 不要把 `schedule.ai.api-key` 直接写进 `application.yml` 提交到仓库。
+- 本项目已改为从环境变量读取 AI 密钥：`SCHEDULE_AI_API_KEY`。
+- 启动前先在当前终端设置：
+  ```bash
+  export SCHEDULE_AI_API_KEY=你的真实密钥
+  cd backend
+  mvn spring-boot:run
+  ```
+- 如果你用 IDE 启动后端，把 `SCHEDULE_AI_API_KEY` 配到 Run Configuration 的环境变量里即可。
+
 ### 数据库初始化
 
 - 启动 Spring Boot 时会自动执行 `backend/src/main/resources/schema.sql`（已配置 `spring.sql.init`），若表已存在则会忽略错误。

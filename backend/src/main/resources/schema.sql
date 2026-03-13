@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS student_payments (
     tuition_paid DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '本次缴费金额',
     lesson_count INT NOT NULL DEFAULT 0 COMMENT '本次购买课时数',
     avg_fee_per_lesson DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '单节课平均费用',
+    remark VARCHAR(255) NULL COMMENT '备注',
     paid_at DATETIME NOT NULL COMMENT '缴费时间',
     CONSTRAINT fk_student_payments_student
         FOREIGN KEY (student_id) REFERENCES students(id)
@@ -72,5 +73,7 @@ CREATE TABLE IF NOT EXISTS trial_lessons (
     name VARCHAR(64) NOT NULL COMMENT '试听学生姓名',
     grade VARCHAR(32) NOT NULL COMMENT '年级',
     trial_time DATETIME NOT NULL COMMENT '试听预约时间',
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDING' COMMENT '试听状态',
+    note VARCHAR(255) NULL COMMENT '备注',
     created_at DATETIME NOT NULL COMMENT '创建时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='试听预约记录';

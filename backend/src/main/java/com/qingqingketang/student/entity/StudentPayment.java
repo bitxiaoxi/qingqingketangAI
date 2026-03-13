@@ -34,4 +34,6 @@ public class StudentPayment {
 
     @TableField("paid_at")
     private LocalDateTime paidAt;
+
+    private String remark;
 }

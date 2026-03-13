@@ -26,6 +26,10 @@ public class TrialLesson {
     @TableField("trial_time")
     private LocalDateTime trialTime;
 
+    private String status;
+
+    private String note;
+
     @TableField("created_at")
     private LocalDateTime createdAt;
 }
