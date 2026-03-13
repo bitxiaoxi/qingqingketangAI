@@ -128,6 +128,9 @@
               >
                 {{ tab.label }}
               </button>
+              <button type="button" class="secondary assistant-launch" @click="openScheduleAssistant">
+                AI 排课
+              </button>
             </div>
           </div>
 
@@ -470,11 +473,85 @@
         </article>
       </section>
     </main>
+
+    <Teleport to="body">
+      <div v-if="scheduleAssistantOpen" class="assistant-modal" @click.self="closeScheduleAssistant">
+        <div class="assistant-dialog">
+          <div class="assistant-dialog__header">
+            <div>
+              <span class="panel-kicker">AI Schedule</span>
+              <h3>智能排课助手</h3>
+              <p>直接告诉我学生、每周上课日、时间段和开始日期，我会尝试自动排课。</p>
+            </div>
+            <button type="button" class="ghost" @click="closeScheduleAssistant">关闭</button>
+          </div>
+
+          <div ref="scheduleAssistantThreadRef" class="assistant-thread">
+            <article
+              v-for="message in scheduleAssistantMessages"
+              :key="message.id"
+              class="assistant-message"
+              :data-role="message.role"
+            >
+              <div class="assistant-message__meta">
+                <span>{{ message.role === 'assistant' ? '排课助手' : '你' }}</span>
+                <small v-if="message.meta">{{ message.meta }}</small>
+              </div>
+              <div class="assistant-bubble">
+                <p>{{ message.content }}</p>
+                <ul v-if="message.warnings?.length" class="assistant-warnings">
+                  <li v-for="warning in message.warnings" :key="`${message.id}-${warning}`">{{ warning }}</li>
+                </ul>
+              </div>
+            </article>
+          </div>
+
+          <div class="assistant-suggestions">
+            <button
+              v-for="example in scheduleAssistantExamples"
+              :key="example"
+              type="button"
+              class="assistant-chip"
+              @click="useScheduleAssistantExample(example)"
+            >
+              {{ example }}
+            </button>
+          </div>
+
+          <form class="assistant-composer" @submit.prevent="submitScheduleAssistant">
+            <label class="assistant-input-wrap">
+              <textarea
+                v-model.trim="scheduleAssistantInput"
+                class="assistant-input"
+                :placeholder="getScheduleAssistantPlaceholder()"
+                :disabled="scheduleAssistantSubmitting"
+              ></textarea>
+            </label>
+            <div class="assistant-composer__footer">
+              <p class="panel__helper">
+                {{ scheduleAssistantPendingFields.length
+                  ? `当前待补：${scheduleAssistantPendingFields.join('、')}。直接继续回复即可。`
+                  : '支持多轮对话；如果信息不完整，助手会继续追问。' }}
+              </p>
+              <div class="assistant-composer__actions">
+                <button type="button" class="ghost" :disabled="scheduleAssistantSubmitting" @click="resetScheduleAssistantConversation">
+                  重置
+                </button>
+                <button type="submit" class="primary" :disabled="scheduleAssistantSubmitting || !scheduleAssistantInput">
+                  {{ scheduleAssistantSubmitting ? '分析中...' : '发送并排课' }}
+                </button>
+              </div>
+            </div>
+            <p v-if="scheduleAssistantError" class="panel__helper error">{{ scheduleAssistantError }}</p>
+          </form>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import logo from '../img/logo.png';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8080';
@@ -523,6 +600,18 @@ const scheduleTabs = [
   { id: 'week', label: '查看周课表' }
 ];
 const activeScheduleTab = ref('arrange');
+const scheduleAssistantExamples = [
+  '李晓明每周二、周四 19:00-20:30，从下周一开始上课',
+  '给王同学安排每周六 09:30-11:00，从2026-03-21开始上正式课',
+  '赵同学从4月8日开始，每周一三五 18:30到20:00上课'
+];
+const scheduleAssistantOpen = ref(false);
+const scheduleAssistantThreadRef = ref(null);
+const scheduleAssistantInput = ref('');
+const scheduleAssistantSubmitting = ref(false);
+const scheduleAssistantError = ref('');
+const scheduleAssistantMessages = ref([]);
+const scheduleAssistantPendingFields = ref([]);
 const weekdayOptions = [
   { value: 1, label: '周一' },
   { value: 2, label: '周二' },
@@ -588,6 +677,7 @@ const feedbackTimeoutIds = {
 };
 let tuitionAnimationFrameId = 0;
 let tuitionHighlightTimeoutId = 0;
+let scheduleAssistantMessageId = 0;
 
 const todayPlanLoading = computed(() => trialLoading.value || todayScheduleLoading.value);
 const todayPlanError = computed(() => {
@@ -975,6 +1065,211 @@ const handleTodayItemClick = async (item) => {
   toggleTodayItem(item.id);
 };
 
+const createScheduleAssistantMessage = (role, content, options = {}) => {
+  scheduleAssistantMessageId += 1;
+  return {
+    id: `assistant-${scheduleAssistantMessageId}`,
+    role,
+    content,
+    meta: options.meta ?? '',
+    warnings: Array.isArray(options.warnings) ? options.warnings : []
+  };
+};
+
+const formatAssistantWeekdays = (values) => {
+  if (!Array.isArray(values) || !values.length) {
+    return '';
+  }
+  return values
+    .map((value) => weekdayOptions.find((option) => option.value === value)?.label ?? '')
+    .filter(Boolean)
+    .join('、');
+};
+
+const formatAssistantTime = (value) => {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value.length >= 5 ? value.slice(0, 5) : value;
+};
+
+const formatParsedIntentSummary = (parsedIntent) => {
+  if (!parsedIntent || typeof parsedIntent !== 'object') {
+    return '';
+  }
+
+  const parts = [];
+  if (parsedIntent.studentName) {
+    parts.push(`学生 ${parsedIntent.studentName}`);
+  }
+  const weekdayText = formatAssistantWeekdays(parsedIntent.weekdays);
+  if (weekdayText) {
+    parts.push(`每周 ${weekdayText}`);
+  }
+  const startTime = formatAssistantTime(parsedIntent.startTime);
+  const endTime = formatAssistantTime(parsedIntent.endTime);
+  if (startTime && endTime) {
+    parts.push(`时间 ${startTime}-${endTime}`);
+  }
+  if (parsedIntent.startDate) {
+    parts.push(`从 ${parsedIntent.startDate} 开始`);
+  }
+  if (Array.isArray(parsedIntent.missingFields) && parsedIntent.missingFields.length) {
+    parts.push(`待补 ${parsedIntent.missingFields.join('、')}`);
+  }
+  return parts.join(' · ');
+};
+
+const getScheduleAssistantPlaceholder = () => {
+  if (scheduleAssistantPendingFields.value.includes('学生姓名')) {
+    return '直接回复学生姓名，例如：李晓明';
+  }
+  if (scheduleAssistantPendingFields.value.includes('每周上课日')) {
+    return '直接回复每周上课日，例如：周二、周四';
+  }
+  if (scheduleAssistantPendingFields.value.includes('开始日期')) {
+    return '直接回复开始日期，例如：从 2026-03-16 开始';
+  }
+  if (scheduleAssistantPendingFields.value.includes('上课时间')) {
+    return '直接回复上课时间，例如：19:00-20:30';
+  }
+  return '例如：李晓明每周二、周四 19:00-20:30，从下周一开始上课';
+};
+
+const createInitialScheduleAssistantMessages = () => {
+  return [
+    createScheduleAssistantMessage(
+      'assistant',
+      '告诉我学生姓名、每周上课日、时间段和开始日期。你可以分多轮慢慢补充，我会记住已经识别到的信息。',
+      { meta: 'AI 对话排课' }
+    )
+  ];
+};
+
+const scrollScheduleAssistantThread = async () => {
+  await nextTick();
+  const thread = scheduleAssistantThreadRef.value;
+  if (!thread) {
+    return;
+  }
+  thread.scrollTop = thread.scrollHeight;
+};
+
+const resetScheduleAssistantConversation = async () => {
+  scheduleAssistantMessages.value = createInitialScheduleAssistantMessages();
+  scheduleAssistantInput.value = '';
+  scheduleAssistantError.value = '';
+  scheduleAssistantPendingFields.value = [];
+  await scrollScheduleAssistantThread();
+};
+
+const openScheduleAssistant = async () => {
+  scheduleAssistantOpen.value = true;
+  scheduleAssistantError.value = '';
+  if (!scheduleAssistantMessages.value.length) {
+    await resetScheduleAssistantConversation();
+    return;
+  }
+  await scrollScheduleAssistantThread();
+};
+
+const closeScheduleAssistant = () => {
+  scheduleAssistantOpen.value = false;
+  scheduleAssistantError.value = '';
+};
+
+const useScheduleAssistantExample = (example) => {
+  scheduleAssistantInput.value = example;
+};
+
+const submitScheduleAssistant = async () => {
+  scheduleAssistantError.value = '';
+  if (!scheduleAssistantInput.value) {
+    return;
+  }
+
+  const userMessage = createScheduleAssistantMessage('user', scheduleAssistantInput.value);
+  scheduleAssistantMessages.value = [...scheduleAssistantMessages.value, userMessage];
+  scheduleAssistantInput.value = '';
+  scheduleAssistantSubmitting.value = true;
+  await scrollScheduleAssistantThread();
+
+  try {
+    const response = await fetch(`${API_BASE}/api/schedules/assistant/arrange`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: scheduleAssistantMessages.value.map((message) => ({
+          role: message.role,
+          content: message.content
+        }))
+      })
+    });
+    const text = await response.text();
+    let data = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (error) {
+        data = null;
+      }
+    }
+
+    if (!response.ok) {
+      const message = data?.message ?? data?.detail ?? '智能排课失败';
+      throw new Error(message);
+    }
+
+    scheduleAssistantPendingFields.value = Array.isArray(data?.parsedIntent?.missingFields)
+      ? data.parsedIntent.missingFields
+      : [];
+
+    const metaParts = [];
+    if (data?.analysisMode === 'AI') {
+      metaParts.push('AI 解析');
+    } else if (data?.analysisMode) {
+      metaParts.push('规则解析');
+    }
+    const parsedIntentSummary = formatParsedIntentSummary(data?.parsedIntent);
+    if (parsedIntentSummary) {
+      metaParts.push(parsedIntentSummary);
+    }
+    if (data?.scheduled) {
+      metaParts.push(`已排 ${data.scheduledCount ?? 0} 节`);
+      scheduleAssistantPendingFields.value = [];
+    }
+
+    scheduleAssistantMessages.value = [
+      ...scheduleAssistantMessages.value,
+      createScheduleAssistantMessage('assistant', data?.reply ?? '已收到排课请求。', {
+        meta: metaParts.join(' · '),
+        warnings: data?.warnings ?? []
+      })
+    ];
+    await scrollScheduleAssistantThread();
+
+    if (data?.scheduled) {
+      activeScheduleTab.value = 'week';
+      const firstSchedule = Array.isArray(data.generatedSchedules) ? data.generatedSchedules[0] : null;
+      if (firstSchedule?.startTime) {
+        currentWeekStart.value = getWeekStart(firstSchedule.startTime);
+      }
+      await loadWeekSchedule();
+      await loadTodayWeekSchedule();
+    }
+  } catch (error) {
+    const message = normalizeError(error, '智能排课失败，请稍后重试');
+    scheduleAssistantError.value = message;
+    scheduleAssistantMessages.value = [
+      ...scheduleAssistantMessages.value,
+      createScheduleAssistantMessage('assistant', message, { meta: '系统提示' })
+    ];
+    await scrollScheduleAssistantThread();
+  } finally {
+    scheduleAssistantSubmitting.value = false;
+  }
+};
+
 const sortWeekdayValues = (values) => {
   return [...new Set(values)].sort((a, b) => a - b);
 };
@@ -1261,6 +1556,7 @@ const submitTrial = async () => {
 };
 
 onMounted(() => {
+  resetScheduleAssistantConversation();
   loadTodayCompletionIds();
   loadStudents();
   loadTuitionOverview();

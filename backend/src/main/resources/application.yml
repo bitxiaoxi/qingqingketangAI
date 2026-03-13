@@ -22,3 +22,11 @@ mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+schedule:
+  ai:
+    enabled: true
+    base-url: https://api.scnet.cn/api/llm/v1
+    api-key: 
+    model: Qwen3-30B-A3B-Instruct-2507
+    timeout-ms: ${SCHEDULE_AI_TIMEOUT_MS:20000}
