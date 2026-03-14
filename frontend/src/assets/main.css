@@ -148,27 +148,6 @@ a {
   font-size: 12px;
 }
 
-.sidebar-footer {
-  margin-top: auto;
-  padding: 14px;
-  border: 1px solid rgba(59, 130, 246, 0.14);
-  border-radius: var(--app-radius-sm);
-  background: #eff6ff;
-  color: var(--app-text-primary);
-}
-
-.sidebar-footer span {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.sidebar-footer small {
-  color: var(--app-text-secondary);
-  line-height: 1.6;
-}
-
 .admin-workspace {
   min-width: 0;
   display: flex;

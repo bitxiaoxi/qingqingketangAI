@@ -32,10 +32,6 @@
         </el-menu-item>
       </el-menu>
 
-      <div class="sidebar-footer">
-        <span>AI 排课已就绪</span>
-        <small>后续可扩展到独立智能运营模块</small>
-      </div>
     </aside>
 
     <el-drawer v-model="mobileNavOpen" direction="ltr" size="260px" :with-header="false">
