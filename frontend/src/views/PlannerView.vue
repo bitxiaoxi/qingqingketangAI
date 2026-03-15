@@ -1,59 +1,30 @@
 <template>
   <section class="page-stack">
-    <PageHeader
-      title="排课管理"
-      description="集中处理手动排课与 AI 排课，为学生快速生成正式课课表。"
-    >
-      <template #actions>
-        <el-button type="primary" @click="openCreateDialog()">新建排课</el-button>
-        <el-button @click="openAssistantDrawer">AI 排课</el-button>
-      </template>
-    </PageHeader>
+    <PageHeader title="排课管理" />
 
     <el-card shadow="never" class="feature-card feature-card--planner">
-      <div class="feature-card__head">
-        <div>
-          <span class="feature-card__eyebrow">Schedule Manager</span>
-          <h3>手动排课与 AI 排课</h3>
-          <p class="feature-card__description">先选学生，再选择固定排课或自然语言生成排课草案。</p>
-        </div>
-        <span v-if="selectedCreateStudent" class="feature-card__meta">
-          {{ selectedCreateStudent.name }} · {{ selectedCreateStudent.grade }}
-        </span>
-      </div>
-
       <div v-if="loading" class="page-state">学生加载中…</div>
       <el-alert v-else-if="error" :title="error" type="error" show-icon :closable="false" />
       <div v-else class="planner-stack">
-        <div v-if="selectedCreateStudent" class="planner-focus">
-          <span class="planner-focus__eyebrow">当前排课学生</span>
-          <strong>{{ selectedCreateStudent.name }} · {{ selectedCreateStudent.grade }}</strong>
-          <p>
-            剩余 {{ selectedCreateStudent.remainingLessons ?? 0 }} 节课，可直接创建周期课表，或用 AI 帮你生成草案。
-          </p>
+        <div class="planner-toolbar">
+          <h3>选择排课方式</h3>
+          <span v-if="selectedCreateStudent" class="planner-student-chip">
+            {{ selectedCreateStudent.name }} · {{ selectedCreateStudent.grade }} · 剩余 {{ selectedCreateStudent.remainingLessons ?? 0 }} 节
+          </span>
         </div>
 
         <div class="planner-mode-grid">
           <button type="button" class="planner-mode planner-mode--manual" @click="openCreateDialog()">
-            <span>手动排课</span>
-            <strong>新建排课</strong>
+            <span class="planner-mode__tag">手动排课</span>
+            <strong>固定周期排课</strong>
+            <small>按学生、上课日和时间生成</small>
           </button>
 
           <button type="button" class="planner-mode planner-mode--ai" @click="openAssistantDrawer">
-            <span>AI 排课</span>
-            <strong>智能生成</strong>
+            <span class="planner-mode__tag">AI 排课</span>
+            <strong>自然语言排课</strong>
+            <small>一句话生成排课草案</small>
           </button>
-        </div>
-
-        <div class="planner-notes">
-          <article class="planner-note">
-            <strong>手动排课</strong>
-            <p>适合固定上课日、固定时间段的正式课批量生成。</p>
-          </article>
-          <article class="planner-note">
-            <strong>AI 排课</strong>
-            <p>适合用自然语言快速描述学生、上课日和时间，系统会自动解析。</p>
-          </article>
         </div>
       </div>
     </el-card>
@@ -65,16 +36,23 @@
       destroy-on-close
       class="schedule-dialog"
     >
-      <div class="dialog-intro">
-        <span class="dialog-intro__eyebrow">Create Schedule</span>
-        <p>填写学生、上课频率、日期与时间后，系统会按剩余课时自动向后排满课表。</p>
+      <div class="dialog-banner">
+        <div>
+          <strong>3 步完成手动排课</strong>
+          <p>先选学生和周期，再选上课日，最后设置时间段。</p>
+        </div>
+        <div class="dialog-steps">
+          <span class="dialog-step">1. 学生</span>
+          <span class="dialog-step">2. 上课日</span>
+          <span class="dialog-step">3. 时间</span>
+        </div>
       </div>
 
       <el-form label-position="top" class="dialog-form">
-        <section class="dialog-block">
+        <section class="dialog-block dialog-block--primary">
           <div class="dialog-block__head">
-            <h4>学生与周期</h4>
-            <small>先确认学生，再设置排课从哪一天开始生效。</small>
+            <h4>基础信息</h4>
+            <small>先确定学生、频率和首次课日期</small>
           </div>
 
           <el-form-item label="学生" required>
@@ -88,6 +66,11 @@
             </el-select>
           </el-form-item>
 
+          <div v-if="selectedCreateStudent" class="dialog-inline-summary">
+            <strong>{{ selectedCreateStudent.name }} · {{ selectedCreateStudent.grade }}</strong>
+            <span>剩余 {{ selectedCreateStudent.remainingLessons ?? 0 }} 节课</span>
+          </div>
+
           <div class="dialog-grid">
             <el-form-item label="每周上课次数" required>
               <el-select v-model="createForm.weeklySessions">
@@ -100,16 +83,18 @@
               </el-select>
             </el-form-item>
 
-            <el-form-item label="开始日期" required>
+            <el-form-item label="首次课日期" required>
               <el-date-picker
                 v-model="createForm.startDate"
                 type="date"
                 format="YYYY-MM-DD"
                 value-format="YYYY-MM-DD"
-                placeholder="选择开始日期"
+                placeholder="选择首次课日期"
               />
             </el-form-item>
           </div>
+
+          <p class="dialog-field-hint">每周上课次数会限制可选的上课日数量。</p>
         </section>
 
         <section class="dialog-block">
@@ -125,18 +110,25 @@
               type="button"
               class="weekday-chip"
               :data-active="createForm.weekdays.includes(option.value)"
-              :disabled="!createForm.weekdays.includes(option.value) && createForm.weekdays.length >= createForm.weeklySessions"
+              :disabled="createForm.weeklySessions > 1 && !createForm.weekdays.includes(option.value) && createForm.weekdays.length >= createForm.weeklySessions"
               @click="toggleWeekday(option.value)"
             >
               {{ option.label }}
             </button>
+          </div>
+
+          <div class="dialog-meta-row">
+            <span class="dialog-meta-pill">已选 {{ createForm.weekdays.length }} 天</span>
+            <span class="dialog-meta-pill" :data-muted="remainingWeekdaySlots === 0">
+              {{ remainingWeekdaySlots > 0 ? `还可再选 ${remainingWeekdaySlots} 天` : '已达到本周次数' }}
+            </span>
           </div>
         </section>
 
         <section class="dialog-block">
           <div class="dialog-block__head">
             <h4>上课时间</h4>
-            <small>设置单节课的标准时间段。</small>
+            <small>设置单节课标准时段</small>
           </div>
 
           <div class="dialog-grid">
@@ -158,13 +150,15 @@
               />
             </el-form-item>
           </div>
+
+          <p class="dialog-field-hint">建议按固定时段排课，后续查看课程表会更清晰。</p>
         </section>
 
         <div class="schedule-preview">
-          <span class="schedule-preview__eyebrow">Schedule Preview</span>
+          <span class="schedule-preview__eyebrow">预览</span>
           <strong>{{ createPreview }}</strong>
           <small v-if="selectedCreateStudent">
-            当前学生剩余 {{ selectedCreateStudent.remainingLessons ?? 0 }} 节课，系统会基于这个课时数自动排满。
+            剩余 {{ selectedCreateStudent.remainingLessons ?? 0 }} 节课
           </small>
         </div>
       </el-form>
@@ -185,12 +179,6 @@
       class="assistant-drawer"
     >
       <div class="assistant-stack">
-        <div class="assistant-guide">
-          <span class="assistant-guide__eyebrow">AI Assistant</span>
-          <h4>自然语言生成排课草案</h4>
-          <p>直接描述学生、每周上课日、开始日期和时间段，系统会解析并尝试自动排课。</p>
-        </div>
-
         <div class="assistant-examples">
           <button
             v-for="example in scheduleAssistantExamples"
@@ -329,6 +317,7 @@ const loadStudents = async () => {
 };
 
 const weekdaySummary = computed(() => buildWeekdaySummary(createForm.weekdays, createForm.weeklySessions, weekdayOptions));
+const remainingWeekdaySlots = computed(() => Math.max(0, createForm.weeklySessions - createForm.weekdays.length));
 
 const selectedCreateStudent = computed(() => {
   return students.value.find((student) => student.id === createForm.studentId) ?? null;
@@ -345,8 +334,10 @@ const createPreview = computed(() => {
   const timeRange = createForm.startTime && createForm.endTime
     ? `${createForm.startTime}-${createForm.endTime}`
     : '未设置时间';
-  const startDate = createForm.startDate || '未设置开始日期';
-  return `${studentLabel} · ${weekdays} · ${timeRange} · 从 ${startDate} 开始`;
+  const firstLessonLabel = createForm.startDate
+    ? `首次课 ${createForm.startDate}`
+    : '未设置首次课日期';
+  return `${studentLabel} · ${weekdays} · ${timeRange} · ${firstLessonLabel}`;
 });
 
 const assistantPlaceholder = computed(() => {
@@ -389,6 +380,9 @@ const toggleWeekday = (weekday) => {
     return;
   }
   if (selected.length >= createForm.weeklySessions) {
+    if (createForm.weeklySessions === 1) {
+      createForm.weekdays = [weekday];
+    }
     return;
   }
   createForm.weekdays = [...selected, weekday].sort((left, right) => left - right);
@@ -528,52 +522,31 @@ onMounted(async () => {
 
 <style scoped>
 .feature-card {
-  background: var(--app-surface);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.feature-card--planner {
+  position: relative;
+  overflow: hidden;
+}
+
+.feature-card--planner::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 160px;
+  background:
+    radial-gradient(circle at top right, rgba(125, 211, 252, 0.18), transparent 26%),
+    linear-gradient(135deg, rgba(59, 130, 246, 0.08), transparent 52%);
+  pointer-events: none;
 }
 
 .feature-card :deep(.el-card__body) {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 18px;
-}
-
-.feature-card__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.feature-card__eyebrow {
-  display: inline-flex;
-  margin-bottom: 8px;
-  color: var(--app-text-tertiary);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.feature-card__head h3 {
-  font-size: 24px;
-  line-height: 1.15;
-}
-
-.feature-card__description {
-  margin-top: 8px;
-  color: var(--app-text-secondary);
-  line-height: 1.7;
-}
-
-.feature-card__meta {
-  display: inline-flex;
-  align-items: center;
-  padding: 9px 12px;
-  border: 1px solid var(--app-border);
-  border-radius: 999px;
-  background: var(--app-primary-soft);
-  color: var(--app-text-secondary);
-  font-size: 13px;
-  white-space: nowrap;
 }
 
 .planner-stack {
@@ -582,115 +555,99 @@ onMounted(async () => {
   gap: 18px;
 }
 
-.planner-focus {
-  padding: 18px;
-  border: 1px solid rgba(59, 130, 246, 0.12);
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgba(239, 246, 255, 0.92), rgba(255, 255, 255, 0.94));
+.planner-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
-.planner-focus__eyebrow {
+.planner-toolbar h3 {
+  font-size: 24px;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+
+.planner-student-chip {
   display: inline-flex;
-  margin-bottom: 10px;
-  color: var(--app-text-tertiary);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.planner-focus strong {
-  display: block;
-  margin-bottom: 8px;
-  font-size: 22px;
-  line-height: 1.1;
-}
-
-.planner-focus p {
-  color: var(--app-text-secondary);
-  line-height: 1.7;
+  align-items: center;
+  max-width: 100%;
+  padding: 10px 14px;
+  border: 1px solid rgba(191, 219, 254, 0.9);
+  border-radius: 999px;
+  background: rgba(239, 246, 255, 0.92);
+  color: #1e3a8a;
+  font-size: 13px;
+  white-space: normal;
 }
 
 .planner-mode-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 14px;
 }
 
 .planner-mode {
-  padding: 20px;
-  border: 1px solid var(--app-border);
-  border-radius: 18px;
-  background: var(--app-surface-muted);
+  padding: 24px;
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.92);
   text-align: left;
   cursor: pointer;
-  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.04);
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
 }
 
 .planner-mode:hover {
   transform: translateY(-2px);
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.08);
 }
 
-.planner-mode span {
+.planner-mode__tag {
   display: inline-flex;
-  margin-bottom: 16px;
-  color: var(--app-text-tertiary);
+  margin-bottom: 14px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.66);
+  color: var(--app-text-secondary);
   font-size: 12px;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  line-height: 1;
 }
 
 .planner-mode strong {
   display: block;
-  font-size: 20px;
+  margin-bottom: 8px;
+  font-size: 22px;
   line-height: 1.2;
 }
 
+.planner-mode small {
+  display: block;
+  color: var(--app-text-secondary);
+  line-height: 1.6;
+}
+
 .planner-mode--manual {
-  border-color: rgba(59, 130, 246, 0.16);
-  background: linear-gradient(145deg, rgba(59, 130, 246, 0.08), rgba(255, 255, 255, 0.94));
+  border-color: rgba(147, 197, 253, 0.72);
+  background: linear-gradient(145deg, rgba(219, 234, 254, 0.78), rgba(255, 255, 255, 0.96));
 }
 
 .planner-mode--ai {
-  border-color: rgba(245, 158, 11, 0.18);
-  background: linear-gradient(145deg, rgba(245, 158, 11, 0.08), rgba(255, 255, 255, 0.94));
+  border-color: rgba(253, 186, 116, 0.72);
+  background: linear-gradient(145deg, rgba(255, 237, 213, 0.78), rgba(255, 255, 255, 0.96));
 }
 
-.planner-notes {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+.schedule-dialog :deep(.el-dialog) {
+  border-radius: 28px;
 }
 
-.planner-note {
-  padding: 16px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-surface-muted);
+.schedule-dialog :deep(.el-dialog__body),
+.assistant-drawer :deep(.el-drawer__body) {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
 }
 
-.planner-note strong {
-  display: block;
-  margin-bottom: 8px;
-  font-size: 16px;
-}
-
-.planner-note p {
-  color: var(--app-text-secondary);
-  line-height: 1.7;
-}
-
-.dialog-intro {
-  margin-bottom: 20px;
-  padding: 14px 16px;
-  border: 1px solid rgba(59, 130, 246, 0.12);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-primary-soft);
-}
-
-.dialog-intro__eyebrow,
-.schedule-preview__eyebrow,
-.assistant-guide__eyebrow {
+.schedule-preview__eyebrow {
   display: inline-flex;
   margin-bottom: 8px;
   color: var(--app-text-tertiary);
@@ -699,36 +656,107 @@ onMounted(async () => {
   text-transform: uppercase;
 }
 
-.dialog-intro p {
+.dialog-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 18px 20px;
+  border: 1px solid rgba(191, 219, 254, 0.92);
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.98), rgba(255, 255, 255, 0.94));
+}
+
+.dialog-banner strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 18px;
+}
+
+.dialog-banner p {
   color: var(--app-text-secondary);
-  line-height: 1.7;
+  line-height: 1.6;
+}
+
+.dialog-steps {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dialog-step {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(191, 219, 254, 0.88);
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .dialog-form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 .dialog-block {
-  padding: 16px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-surface);
+  padding: 18px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.dialog-block--primary {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.62);
 }
 
 .dialog-block__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 16px;
 }
 
 .dialog-block__head h4 {
-  margin-bottom: 4px;
+  margin: 0;
   font-size: 16px;
 }
 
 .dialog-block__head small {
+  margin: 0;
   color: var(--app-text-secondary);
   line-height: 1.6;
+}
+
+.dialog-inline-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: -4px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(239, 246, 255, 0.82);
+  border: 1px solid rgba(191, 219, 254, 0.88);
+}
+
+.dialog-inline-summary strong {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.dialog-inline-summary span {
+  color: #1d4ed8;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .dialog-grid {
@@ -745,17 +773,18 @@ onMounted(async () => {
 
 .weekday-chip {
   padding: 12px 10px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-surface);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
   color: var(--app-text-secondary);
   cursor: pointer;
-  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
+  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease, box-shadow 180ms ease;
 }
 
 .weekday-chip[data-active='true'] {
   border-color: rgba(59, 130, 246, 0.34);
-  background: rgba(59, 130, 246, 0.08);
+  background: rgba(219, 234, 254, 0.78);
+  box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.65);
   color: var(--app-primary);
 }
 
@@ -768,16 +797,48 @@ onMounted(async () => {
   transform: translateY(-1px);
 }
 
+.dialog-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.dialog-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.96);
+  border: 1px solid rgba(226, 232, 240, 0.88);
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+
+.dialog-meta-pill[data-muted='true'] {
+  color: #1d4ed8;
+  border-color: rgba(191, 219, 254, 0.88);
+  background: rgba(239, 246, 255, 0.88);
+}
+
+.dialog-field-hint {
+  margin-top: 12px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
 .schedule-preview {
-  padding: 16px;
-  border-radius: var(--app-radius-sm);
-  background: #111827;
-  color: rgba(255, 255, 255, 0.92);
+  padding: 18px;
+  border: 1px solid rgba(191, 219, 254, 0.9);
+  border-radius: 20px;
+  background: linear-gradient(145deg, #0f172a, #1e3a8a);
+  color: rgba(255, 255, 255, 0.94);
 }
 
 .schedule-preview strong {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   font-size: 17px;
   line-height: 1.6;
 }
@@ -803,24 +864,7 @@ onMounted(async () => {
 .assistant-stack {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-}
-
-.assistant-guide {
-  padding: 14px 16px;
-  border: 1px solid rgba(59, 130, 246, 0.12);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-primary-soft);
-}
-
-.assistant-guide h4 {
-  margin-bottom: 8px;
-  font-size: 20px;
-}
-
-.assistant-guide p {
-  color: var(--app-text-secondary);
-  line-height: 1.8;
+  gap: 14px;
 }
 
 .assistant-examples {
@@ -831,12 +875,19 @@ onMounted(async () => {
 
 .assistant-example {
   padding: 10px 12px;
-  border: 1px solid var(--app-border);
+  border: 1px solid rgba(226, 232, 240, 0.9);
   border-radius: 999px;
-  background: var(--app-surface);
+  background: rgba(255, 255, 255, 0.92);
   color: var(--app-text-secondary);
   font-size: 13px;
   cursor: pointer;
+  transition: border-color 180ms ease, transform 180ms ease, background 180ms ease;
+}
+
+.assistant-example:hover {
+  transform: translateY(-1px);
+  border-color: rgba(191, 219, 254, 0.88);
+  background: rgba(239, 246, 255, 0.9);
 }
 
 .assistant-thread {
@@ -845,7 +896,10 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding-right: 4px;
+  padding: 6px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .assistant-message {
@@ -863,14 +917,14 @@ onMounted(async () => {
 
 .assistant-message__bubble {
   padding: 12px 14px;
-  border-radius: var(--app-radius-sm);
-  background: var(--app-surface-muted);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.98);
   color: var(--app-text-primary);
   line-height: 1.7;
 }
 
 .assistant-message[data-role='user'] .assistant-message__bubble {
-  background: var(--app-primary-soft);
+  background: rgba(219, 234, 254, 0.92);
 }
 
 .assistant-message__bubble ul {
@@ -891,6 +945,38 @@ onMounted(async () => {
   gap: 12px;
 }
 
+.dialog-form :deep(.el-select__wrapper),
+.dialog-form :deep(.el-input__wrapper),
+.dialog-form :deep(.el-textarea__inner),
+.dialog-form :deep(.el-date-editor.el-input__wrapper),
+.dialog-form :deep(.el-date-editor.el-input__wrapper.is-focus),
+.dialog-form :deep(.el-input__wrapper.is-focus),
+.dialog-form :deep(.el-select__wrapper.is-focused),
+.dialog-form :deep(.el-textarea__inner:focus),
+.assistant-stack :deep(.el-textarea__inner) {
+  border-radius: 16px;
+}
+
+.dialog-form :deep(.el-select__wrapper),
+.dialog-form :deep(.el-input__wrapper),
+.dialog-form :deep(.el-date-editor.el-input__wrapper) {
+  min-height: 46px;
+  background: rgba(248, 250, 252, 0.92);
+  box-shadow: none;
+}
+
+.dialog-form :deep(.el-input__wrapper.is-focus),
+.dialog-form :deep(.el-select__wrapper.is-focused),
+.dialog-form :deep(.el-date-editor.el-input__wrapper.is-focus) {
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.82) inset;
+}
+
+.assistant-stack :deep(.el-textarea__inner) {
+  min-height: 112px;
+  padding: 14px 16px;
+}
+
 .page-state {
   color: var(--app-text-secondary);
   font-size: 14px;
@@ -898,7 +984,9 @@ onMounted(async () => {
 
 @media (max-width: 1200px) {
   .assistant-actions,
-  .feature-card__head {
+  .planner-toolbar,
+  .dialog-banner,
+  .dialog-inline-summary {
     flex-direction: column;
     align-items: flex-start;
   }
@@ -907,7 +995,6 @@ onMounted(async () => {
 @media (max-width: 900px) {
   .dialog-grid,
   .planner-mode-grid,
-  .planner-notes,
   .weekday-chip-grid {
     grid-template-columns: 1fr;
   }
