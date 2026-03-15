@@ -541,19 +541,6 @@ const schedulePosterUrl = computed(() => {
         <path d="M 0 18 L 17 0 L 34 18 Z" fill="#fde68a" stroke="rgba(148,163,184,0.24)" />
         <path d="M 11 8 L 17 2 L 23 8 Z" fill="#475569" />
       </g>
-      <g transform="translate(${width - 262} ${height - 180})">
-        <rect x="18" y="56" width="118" height="84" rx="20" fill="rgba(255,255,255,0.88)" stroke="rgba(148,163,184,0.26)" />
-        <rect x="32" y="44" width="118" height="84" rx="20" fill="rgba(219,234,254,0.88)" stroke="rgba(96,165,250,0.28)" />
-        <path d="M 32 74 H 150" stroke="rgba(148,163,184,0.36)" stroke-width="4" stroke-linecap="round" />
-        <path d="M 52 92 H 132" stroke="rgba(148,163,184,0.30)" stroke-width="4" stroke-linecap="round" />
-        <path d="M 52 108 H 118" stroke="rgba(148,163,184,0.24)" stroke-width="4" stroke-linecap="round" />
-        <circle cx="116" cy="22" r="20" fill="rgba(255,255,255,0.96)" stroke="rgba(148,163,184,0.24)" />
-        <circle cx="108" cy="20" r="3.5" fill="#334155" />
-        <circle cx="124" cy="20" r="3.5" fill="#334155" />
-        <path d="M 108 30 Q 116 38 124 30" fill="none" stroke="#334155" stroke-width="3" stroke-linecap="round" />
-        <circle cx="102" cy="28" r="4" fill="rgba(251,113,133,0.30)" />
-        <circle cx="130" cy="28" r="4" fill="rgba(251,113,133,0.30)" />
-      </g>
       <g opacity="0.72">
         <path d="M ${outerPadding + 190} 54 L ${outerPadding + 196} 42 L ${outerPadding + 202} 54 L ${outerPadding + 214} 60 L ${outerPadding + 202} 66 L ${outerPadding + 196} 78 L ${outerPadding + 190} 66 L ${outerPadding + 178} 60 Z" fill="rgba(253,224,71,0.82)" />
         <path d="M ${outerPadding + 226} 114 L ${outerPadding + 230} 106 L ${outerPadding + 234} 114 L ${outerPadding + 242} 118 L ${outerPadding + 234} 122 L ${outerPadding + 230} 130 L ${outerPadding + 226} 122 L ${outerPadding + 218} 118 Z" fill="rgba(125,211,252,0.88)" />
