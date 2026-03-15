@@ -237,7 +237,7 @@ const getPurchasedLessons = (student) => Math.max(0, Number(student?.lessonCount
 const getRemainingLessons = (student) => Math.max(0, Number(student?.remainingLessons ?? 0));
 
 const getCompletedLessons = (student) => {
-  return Math.max(0, getPurchasedLessons(student) - getRemainingLessons(student));
+  return Math.max(0, Number(student?.completedLessons ?? (getPurchasedLessons(student) - getRemainingLessons(student))));
 };
 
 const formatLessonCount = (value) => `${Math.max(0, Number(value ?? 0))} 节`;

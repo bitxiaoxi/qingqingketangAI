@@ -9,7 +9,7 @@
         <div class="planner-toolbar">
           <h3>选择排课方式</h3>
           <span v-if="selectedCreateStudent" class="planner-student-chip">
-            {{ selectedCreateStudent.name }} · {{ selectedCreateStudent.grade }} · 剩余 {{ selectedCreateStudent.remainingLessons ?? 0 }} 节
+            {{ selectedCreateStudent.name }} · {{ selectedCreateStudent.grade }} · 可排 {{ getSchedulableLessons(selectedCreateStudent) }} 节
           </span>
         </div>
 
@@ -68,7 +68,7 @@
 
           <div v-if="selectedCreateStudent" class="dialog-inline-summary">
             <strong>{{ selectedCreateStudent.name }} · {{ selectedCreateStudent.grade }}</strong>
-            <span>剩余 {{ selectedCreateStudent.remainingLessons ?? 0 }} 节课</span>
+            <span>当前可排 {{ getSchedulableLessons(selectedCreateStudent) }} 节课</span>
           </div>
 
           <div class="dialog-grid">
@@ -103,7 +103,12 @@
             <small>{{ weekdaySummary }}</small>
           </div>
 
-          <div class="weekday-chip-grid">
+          <div v-if="isDailySchedule" class="weekday-auto-state">
+            <strong>每天上课</strong>
+            <span>已自动包含周一到周日，无需再选择上课日。</span>
+          </div>
+
+          <div v-else class="weekday-chip-grid">
             <button
               v-for="option in weekdayOptions"
               :key="option.value"
@@ -117,7 +122,7 @@
             </button>
           </div>
 
-          <div class="dialog-meta-row">
+          <div v-if="!isDailySchedule" class="dialog-meta-row">
             <span class="dialog-meta-pill">已选 {{ createForm.weekdays.length }} 天</span>
             <span class="dialog-meta-pill" :data-muted="remainingWeekdaySlots === 0">
               {{ remainingWeekdaySlots > 0 ? `还可再选 ${remainingWeekdaySlots} 天` : '已达到本周次数' }}
@@ -158,7 +163,7 @@
           <span class="schedule-preview__eyebrow">预览</span>
           <strong>{{ createPreview }}</strong>
           <small v-if="selectedCreateStudent">
-            剩余 {{ selectedCreateStudent.remainingLessons ?? 0 }} 节课
+            当前可排 {{ getSchedulableLessons(selectedCreateStudent) }} 节课
           </small>
         </div>
       </el-form>
@@ -270,7 +275,12 @@ const assistantMessages = ref([]);
 const assistantInput = ref('');
 const assistantPendingFields = ref([]);
 const assistantSubmitting = ref(false);
+const allWeekdayValues = weekdayOptions.map((option) => option.value);
 let assistantMessageId = 0;
+
+const getSchedulableLessons = (student) => {
+  return Math.max(0, Number(student?.schedulableLessons ?? student?.remainingLessons ?? 0));
+};
 
 const createAssistantMessage = (role, content, options = {}) => {
   assistantMessageId += 1;
@@ -316,8 +326,25 @@ const loadStudents = async () => {
   }
 };
 
-const weekdaySummary = computed(() => buildWeekdaySummary(createForm.weekdays, createForm.weeklySessions, weekdayOptions));
-const remainingWeekdaySlots = computed(() => Math.max(0, createForm.weeklySessions - createForm.weekdays.length));
+const isDailySchedule = computed(() => createForm.weeklySessions === allWeekdayValues.length);
+const normalizedCreateWeekdays = computed(() => {
+  if (isDailySchedule.value) {
+    return [...allWeekdayValues];
+  }
+  return [...createForm.weekdays].sort((left, right) => left - right);
+});
+const weekdaySummary = computed(() => {
+  if (isDailySchedule.value) {
+    return '每天上课 · 自动包含周一到周日';
+  }
+  return buildWeekdaySummary(normalizedCreateWeekdays.value, createForm.weeklySessions, weekdayOptions);
+});
+const remainingWeekdaySlots = computed(() => {
+  if (isDailySchedule.value) {
+    return 0;
+  }
+  return Math.max(0, createForm.weeklySessions - normalizedCreateWeekdays.value.length);
+});
 
 const selectedCreateStudent = computed(() => {
   return students.value.find((student) => student.id === createForm.studentId) ?? null;
@@ -328,7 +355,7 @@ const createPreview = computed(() => {
     ? `${selectedCreateStudent.value.name} · ${selectedCreateStudent.value.grade}`
     : '未选择学生';
   const weekdays = weekdayOptions
-    .filter((option) => createForm.weekdays.includes(option.value))
+    .filter((option) => normalizedCreateWeekdays.value.includes(option.value))
     .map((option) => option.label)
     .join('、') || '未选择上课日';
   const timeRange = createForm.startTime && createForm.endTime
@@ -371,6 +398,9 @@ const openCreateDialog = (studentId = route.query.studentId ? Number(route.query
 };
 
 const toggleWeekday = (weekday) => {
+  if (isDailySchedule.value) {
+    return;
+  }
   const selected = [...createForm.weekdays];
   if (selected.includes(weekday)) {
     if (selected.length === 1) {
@@ -393,7 +423,7 @@ const submitCreateForm = async () => {
     ElMessage.error('请完整填写排课信息');
     return;
   }
-  if (createForm.weekdays.length !== createForm.weeklySessions) {
+  if (!isDailySchedule.value && normalizedCreateWeekdays.value.length !== createForm.weeklySessions) {
     ElMessage.error(`每周 ${createForm.weeklySessions} 次课，请选择 ${createForm.weeklySessions} 个上课日`);
     return;
   }
@@ -401,7 +431,7 @@ const submitCreateForm = async () => {
   creating.value = true;
   try {
     const generated = await api.generateSchedules(createForm.studentId, {
-      weekdays: [...createForm.weekdays].sort((left, right) => left - right),
+      weekdays: normalizedCreateWeekdays.value,
       startDate: createForm.startDate,
       startTime: createForm.startTime,
       endTime: createForm.endTime
@@ -490,8 +520,15 @@ const submitAssistant = async () => {
 watch(
   () => createForm.weeklySessions,
   (value) => {
+    if (value >= allWeekdayValues.length) {
+      createForm.weekdays = [...allWeekdayValues];
+      return;
+    }
     if (createForm.weekdays.length > value) {
       createForm.weekdays = createForm.weekdays.slice(0, value);
+    }
+    if (!createForm.weekdays.length) {
+      createForm.weekdays = [weekdayOptions[0].value];
     }
   }
 );
@@ -769,6 +806,28 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
+}
+
+.weekday-auto-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid rgba(191, 219, 254, 0.88);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(239, 246, 255, 0.92), rgba(255, 255, 255, 0.96));
+}
+
+.weekday-auto-state strong {
+  color: #1d4ed8;
+  font-size: 14px;
+}
+
+.weekday-auto-state span {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .weekday-chip {

@@ -56,16 +56,20 @@ CREATE TABLE IF NOT EXISTS student_lesson_consumptions (
     INDEX idx_lesson_consumption_payment (payment_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='学生销课明细';
 
--- 学生剩余课时表：记录可排课的剩余节数
+-- 学生课时快照表：记录购买、已排、已销、剩余和可排课时
 CREATE TABLE IF NOT EXISTS student_lesson_balances (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '自增主键',
     student_id BIGINT NOT NULL UNIQUE COMMENT '学生ID',
-    remaining_lessons INT NOT NULL DEFAULT 0 COMMENT '剩余课时数',
+    purchased_lessons INT NOT NULL DEFAULT 0 COMMENT '累计购买课时数',
+    scheduled_lessons INT NOT NULL DEFAULT 0 COMMENT '已排未销课时数',
+    completed_lessons INT NOT NULL DEFAULT 0 COMMENT '已销课时数',
+    remaining_lessons INT NOT NULL DEFAULT 0 COMMENT '未销课剩余课时数',
+    schedulable_lessons INT NOT NULL DEFAULT 0 COMMENT '当前可继续排课时数',
     updated_at DATETIME NOT NULL COMMENT '更新时间',
     CONSTRAINT fk_lesson_balance_student
         FOREIGN KEY (student_id) REFERENCES students(id)
         ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='学生剩余课时表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='学生课时快照表';
 
 -- 试听管理表：记录试听预约信息
 CREATE TABLE IF NOT EXISTS trial_lessons (

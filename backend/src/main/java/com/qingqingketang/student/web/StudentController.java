@@ -4,15 +4,14 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.qingqingketang.student.entity.Student;
 import com.qingqingketang.student.entity.StudentLessonBalance;
 import com.qingqingketang.student.entity.StudentPayment;
-import com.qingqingketang.student.entity.StudentSchedule;
 import com.qingqingketang.student.mapper.StudentLessonConsumptionMapper;
 import com.qingqingketang.student.mapper.StudentPaymentMapper;
 import com.qingqingketang.student.service.StudentPaymentService;
 import com.qingqingketang.student.service.StudentLessonBalanceService;
-import com.qingqingketang.student.service.StudentScheduleService;
 import com.qingqingketang.student.service.StudentService;
 import com.qingqingketang.student.web.dto.PaymentSummary;
 import org.springframework.http.HttpStatus;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -48,20 +47,17 @@ public class StudentController {
     private final StudentPaymentMapper studentPaymentMapper;
     private final StudentLessonBalanceService studentLessonBalanceService;
     private final StudentLessonConsumptionMapper studentLessonConsumptionMapper;
-    private final StudentScheduleService studentScheduleService;
 
     public StudentController(StudentService studentService,
                              StudentPaymentService studentPaymentService,
                              StudentPaymentMapper studentPaymentMapper,
                              StudentLessonBalanceService studentLessonBalanceService,
-                             StudentLessonConsumptionMapper studentLessonConsumptionMapper,
-                             StudentScheduleService studentScheduleService) {
+                             StudentLessonConsumptionMapper studentLessonConsumptionMapper) {
         this.studentService = studentService;
         this.studentPaymentService = studentPaymentService;
         this.studentPaymentMapper = studentPaymentMapper;
         this.studentLessonBalanceService = studentLessonBalanceService;
         this.studentLessonConsumptionMapper = studentLessonConsumptionMapper;
-        this.studentScheduleService = studentScheduleService;
     }
 
     /**
@@ -87,29 +83,17 @@ public class StudentController {
         for (PaymentSummary summary : summaries) {
             summaryMap.put(summary.getStudentId(), summary);
         }
-        Map<Long, Integer> remainingLessonsMap = studentLessonBalanceService.list(
+        Map<Long, StudentLessonBalance> balanceMap = studentLessonBalanceService.list(
                         Wrappers.<StudentLessonBalance>lambdaQuery()
                                 .in(StudentLessonBalance::getStudentId, ids))
                 .stream()
-                .collect(Collectors.toMap(
-                        StudentLessonBalance::getStudentId,
-                        balance -> balance.getRemainingLessons() == null ? 0 : balance.getRemainingLessons()
-                ));
-        Map<Long, Integer> courseCountMap = studentScheduleService.list(
-                        Wrappers.<StudentSchedule>lambdaQuery()
-                                .in(StudentSchedule::getStudentId, ids))
-                .stream()
-                .collect(Collectors.groupingBy(
-                        StudentSchedule::getStudentId,
-                        Collectors.collectingAndThen(Collectors.counting(), Long::intValue)
-                ));
+                .collect(Collectors.toMap(StudentLessonBalance::getStudentId, balance -> balance));
 
         return students.stream()
                 .map(student -> toView(
                         student,
                         summaryMap.get(student.getId()),
-                        remainingLessonsMap.getOrDefault(student.getId(), 0),
-                        courseCountMap.getOrDefault(student.getId(), 0)))
+                        balanceMap.get(student.getId())))
                 .collect(Collectors.toList());
     }
 
@@ -167,6 +151,7 @@ public class StudentController {
      */
     @PostMapping("/{studentId}/payments")
     @ResponseStatus(HttpStatus.CREATED)
+    @Transactional
     public StudentView createPayment(@PathVariable Long studentId, @Valid @RequestBody PaymentRequest request) {
         Student student = studentService.getById(studentId);
         if (student == null) {
@@ -188,7 +173,7 @@ public class StudentController {
         payment.setRemark(request.getRemark());
         payment.setPaidAt(LocalDateTime.now());
         studentPaymentService.save(payment);
-        increaseLessonBalance(studentId, lessons);
+        studentLessonBalanceService.refreshStudentBalance(studentId);
 
         List<PaymentSummary> summaries = studentPaymentMapper.sumByStudentIds(Collections.singletonList(studentId));
         PaymentSummary summary = summaries.isEmpty() ? null : summaries.get(0);
@@ -200,6 +185,7 @@ public class StudentController {
      */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @Transactional
     public StudentView create(@Valid @RequestBody StudentRequest request) {
         Student student = new Student();
         student.setName(request.getName());
@@ -224,7 +210,7 @@ public class StudentController {
             payment.setPaidAt(LocalDateTime.now());
             studentPaymentService.save(payment);
         }
-        setLessonBalance(student.getId(), lessons);
+        studentLessonBalanceService.refreshStudentBalance(student.getId());
 
         PaymentSummary summary = new PaymentSummary();
         summary.setStudentId(student.getId());
@@ -395,7 +381,10 @@ public class StudentController {
         private String grade;
         private BigDecimal tuitionPaid;
         private Integer lessonCount;
+        private Integer scheduledLessons;
+        private Integer completedLessons;
         private Integer remainingLessons;
+        private Integer schedulableLessons;
         private Integer courseCount;
         private LocalDateTime createdAt;
         private BigDecimal avgFeePerLesson;
@@ -448,12 +437,36 @@ public class StudentController {
             this.lessonCount = lessonCount;
         }
 
+        public Integer getScheduledLessons() {
+            return scheduledLessons;
+        }
+
+        public void setScheduledLessons(Integer scheduledLessons) {
+            this.scheduledLessons = scheduledLessons;
+        }
+
+        public Integer getCompletedLessons() {
+            return completedLessons;
+        }
+
+        public void setCompletedLessons(Integer completedLessons) {
+            this.completedLessons = completedLessons;
+        }
+
         public Integer getRemainingLessons() {
             return remainingLessons;
         }
 
         public void setRemainingLessons(Integer remainingLessons) {
             this.remainingLessons = remainingLessons;
+        }
+
+        public Integer getSchedulableLessons() {
+            return schedulableLessons;
+        }
+
+        public void setSchedulableLessons(Integer schedulableLessons) {
+            this.schedulableLessons = schedulableLessons;
         }
 
         public Integer getCourseCount() {
@@ -484,7 +497,7 @@ public class StudentController {
     /**
      * 把实体与缴费汇总转换成视图对象，统一输出到前端。
      */
-    private StudentView toView(Student student, PaymentSummary summary, int remainingLessons, int courseCount) {
+    private StudentView toView(Student student, PaymentSummary summary, StudentLessonBalance balance) {
         StudentView view = new StudentView();
         view.setId(student.getId());
         view.setName(student.getName());
@@ -492,19 +505,38 @@ public class StudentController {
         view.setGrade(student.getGrade());
         view.setCreatedAt(student.getCreatedAt());
         BigDecimal tuition = BigDecimal.ZERO;
-        int lessons = 0;
+        int purchasedLessons = balance != null && balance.getPurchasedLessons() != null
+                ? balance.getPurchasedLessons()
+                : 0;
         if (summary != null) {
             tuition = summary.getTotalTuitionPaid() == null ? BigDecimal.ZERO : summary.getTotalTuitionPaid();
-            lessons = summary.getTotalLessonCount() == null ? 0 : summary.getTotalLessonCount();
+            if (purchasedLessons <= 0) {
+                purchasedLessons = summary.getTotalLessonCount() == null ? 0 : summary.getTotalLessonCount();
+            }
         }
+        int scheduledLessons = balance != null && balance.getScheduledLessons() != null
+                ? balance.getScheduledLessons()
+                : 0;
+        int completedLessons = balance != null && balance.getCompletedLessons() != null
+                ? balance.getCompletedLessons()
+                : 0;
+        int remainingLessons = balance != null && balance.getRemainingLessons() != null
+                ? balance.getRemainingLessons()
+                : Math.max(purchasedLessons - completedLessons, 0);
+        int schedulableLessons = balance != null && balance.getSchedulableLessons() != null
+                ? balance.getSchedulableLessons()
+                : Math.max(remainingLessons - scheduledLessons, 0);
         view.setTuitionPaid(tuition);
-        view.setLessonCount(lessons);
+        view.setLessonCount(Math.max(purchasedLessons, 0));
+        view.setScheduledLessons(Math.max(scheduledLessons, 0));
+        view.setCompletedLessons(Math.max(completedLessons, 0));
         view.setRemainingLessons(Math.max(remainingLessons, 0));
-        view.setCourseCount(Math.max(courseCount, 0));
-        if (lessons > 0) {
+        view.setSchedulableLessons(Math.max(schedulableLessons, 0));
+        view.setCourseCount(Math.max(scheduledLessons + completedLessons, 0));
+        if (purchasedLessons > 0) {
             BigDecimal summaryAvg = summary != null && summary.getAvgFeePerLesson() != null
                     ? summary.getAvgFeePerLesson()
-                    : tuition.divide(BigDecimal.valueOf(lessons), 2, RoundingMode.HALF_UP);
+                    : tuition.divide(BigDecimal.valueOf(purchasedLessons), 2, RoundingMode.HALF_UP);
             view.setAvgFeePerLesson(summaryAvg);
         } else {
             view.setAvgFeePerLesson(BigDecimal.ZERO);
@@ -515,12 +547,7 @@ public class StudentController {
     private StudentView buildSingleStudentView(Student student, PaymentSummary summary) {
         StudentLessonBalance balance = studentLessonBalanceService.getOne(
                 Wrappers.<StudentLessonBalance>lambdaQuery().eq(StudentLessonBalance::getStudentId, student.getId()));
-        int remainingLessons = balance != null && balance.getRemainingLessons() != null
-                ? balance.getRemainingLessons()
-                : 0;
-        int courseCount = Math.toIntExact(studentScheduleService.count(
-                Wrappers.<StudentSchedule>lambdaQuery().eq(StudentSchedule::getStudentId, student.getId())));
-        return toView(student, summary, remainingLessons, courseCount);
+        return toView(student, summary, balance);
     }
 
     public static class PaymentRecordView {
@@ -619,50 +646,4 @@ public class StudentController {
         }
     }
 
-    /**
-     * 初始化/覆盖学生课时余额：录入学生时调用。
-     */
-    private void setLessonBalance(Long studentId, int lessons) {
-        // 初始化或覆盖指定学生的剩余课时
-        int normalized = Math.max(lessons, 0);
-        StudentLessonBalance balance = studentLessonBalanceService.getOne(
-                Wrappers.<StudentLessonBalance>lambdaQuery().eq(StudentLessonBalance::getStudentId, studentId));
-        LocalDateTime now = LocalDateTime.now();
-        if (balance == null) {
-            balance = new StudentLessonBalance();
-            balance.setStudentId(studentId);
-            balance.setRemainingLessons(normalized);
-            balance.setUpdatedAt(now);
-            studentLessonBalanceService.save(balance);
-        } else {
-            balance.setRemainingLessons(normalized);
-            balance.setUpdatedAt(now);
-            studentLessonBalanceService.updateById(balance);
-        }
-    }
-
-    /**
-     * 累加课时余额：续费接口调用；校验 delta<=0 时直接返回。
-     */
-    private void increaseLessonBalance(Long studentId, int delta) {
-        if (delta <= 0) {
-            return;
-        }
-        // 续费时累加课时余额，不存在则创建记录
-        StudentLessonBalance balance = studentLessonBalanceService.getOne(
-                Wrappers.<StudentLessonBalance>lambdaQuery().eq(StudentLessonBalance::getStudentId, studentId));
-        LocalDateTime now = LocalDateTime.now();
-        if (balance == null) {
-            balance = new StudentLessonBalance();
-            balance.setStudentId(studentId);
-            balance.setRemainingLessons(delta);
-            balance.setUpdatedAt(now);
-            studentLessonBalanceService.save(balance);
-        } else {
-            int current = balance.getRemainingLessons() == null ? 0 : balance.getRemainingLessons();
-            balance.setRemainingLessons(current + delta);
-            balance.setUpdatedAt(now);
-            studentLessonBalanceService.updateById(balance);
-        }
-    }
 }

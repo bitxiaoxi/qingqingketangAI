@@ -6,6 +6,7 @@ import com.qingqingketang.student.entity.StudentLessonBalance;
 import com.qingqingketang.student.entity.StudentLessonConsumption;
 import com.qingqingketang.student.entity.StudentPayment;
 import com.qingqingketang.student.entity.StudentSchedule;
+import com.qingqingketang.student.mapper.StudentLessonBalanceMapper;
 import com.qingqingketang.student.mapper.StudentLessonConsumptionMapper;
 import com.qingqingketang.student.mapper.StudentPaymentMapper;
 import com.qingqingketang.student.mapper.StudentScheduleMapper;
@@ -59,6 +60,7 @@ public class StudentScheduleController {
     private final StudentService studentService;
     private final StudentScheduleService studentScheduleService;
     private final StudentScheduleMapper studentScheduleMapper;
+    private final StudentLessonBalanceMapper studentLessonBalanceMapper;
     private final StudentLessonBalanceService studentLessonBalanceService;
     private final StudentPaymentMapper studentPaymentMapper;
     private final StudentLessonConsumptionMapper studentLessonConsumptionMapper;
@@ -68,6 +70,7 @@ public class StudentScheduleController {
     public StudentScheduleController(StudentService studentService,
                                      StudentScheduleService studentScheduleService,
                                      StudentScheduleMapper studentScheduleMapper,
+                                     StudentLessonBalanceMapper studentLessonBalanceMapper,
                                      StudentLessonBalanceService studentLessonBalanceService,
                                      StudentPaymentMapper studentPaymentMapper,
                                      StudentLessonConsumptionMapper studentLessonConsumptionMapper,
@@ -76,6 +79,7 @@ public class StudentScheduleController {
         this.studentService = studentService;
         this.studentScheduleService = studentScheduleService;
         this.studentScheduleMapper = studentScheduleMapper;
+        this.studentLessonBalanceMapper = studentLessonBalanceMapper;
         this.studentLessonBalanceService = studentLessonBalanceService;
         this.studentPaymentMapper = studentPaymentMapper;
         this.studentLessonConsumptionMapper = studentLessonConsumptionMapper;
@@ -87,6 +91,7 @@ public class StudentScheduleController {
      * 根据开始日期 + 每周上课日自动生成课表：支持每周 1 到 7 次课。
      */
     @PostMapping("/students/{studentId}/auto-generate")
+    @Transactional
     @ResponseStatus(HttpStatus.CREATED)
     public List<ScheduleView> autoGenerate(@PathVariable Long studentId,
                                            @Valid @RequestBody ScheduleGenerateRequest request) {
@@ -95,14 +100,21 @@ public class StudentScheduleController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "学生不存在");
         }
 
-        // 读取课时余额来确定需要生成的总课次数
-        StudentLessonBalance balance = studentLessonBalanceService.getOne(
-                Wrappers.<StudentLessonBalance>lambdaQuery().eq(StudentLessonBalance::getStudentId, studentId));
+        studentLessonBalanceService.refreshStudentBalance(studentId);
+        // 使用余额行锁，确保并发排课时不会重复透支课时。
+        StudentLessonBalance balance = studentLessonBalanceMapper.findByStudentIdForUpdate(studentId);
         int remainingLessons = balance != null && balance.getRemainingLessons() != null
                 ? balance.getRemainingLessons()
                 : 0;
         if (remainingLessons <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该学生暂无剩余课时，请先录入学费和课时信息");
+        }
+
+        int schedulableLessons = balance != null && balance.getSchedulableLessons() != null
+                ? balance.getSchedulableLessons()
+                : 0;
+        if (schedulableLessons <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该学生剩余课时已全部排入课表，请先调整现有排课或新增课时");
         }
 
         List<Integer> weekdayValues = resolveWeekdays(request);
@@ -115,7 +127,7 @@ public class StudentScheduleController {
 
         List<StudentSchedule> schedules = new ArrayList<>();
         LocalDateTime now = LocalDateTime.now();
-        List<LocalDate> lessonDates = generateLessonDates(startDate, weekdayValues, remainingLessons);
+        List<LocalDate> lessonDates = generateLessonDates(startDate, weekdayValues, schedulableLessons);
         for (LocalDate currentDate : lessonDates) {
             StudentSchedule schedule = new StudentSchedule();
             schedule.setStudentId(studentId);
@@ -140,6 +152,7 @@ public class StudentScheduleController {
         }
 
         studentScheduleService.saveBatch(schedules);
+        studentLessonBalanceService.refreshStudentBalance(studentId);
         return schedules.stream()
                 .map(schedule -> toView(schedule, student.getName(), null))
                 .collect(Collectors.toList());
@@ -248,8 +261,8 @@ public class StudentScheduleController {
 
         StudentLessonConsumption consumption = studentLessonConsumptionMapper.findByScheduleId(scheduleId);
         if (!STATUS_COMPLETED.equalsIgnoreCase(schedule.getStatus())) {
-            StudentLessonBalance balance = studentLessonBalanceService.getOne(
-                    Wrappers.<StudentLessonBalance>lambdaQuery().eq(StudentLessonBalance::getStudentId, schedule.getStudentId()));
+            studentLessonBalanceService.refreshStudentBalance(schedule.getStudentId());
+            StudentLessonBalance balance = studentLessonBalanceMapper.findByStudentIdForUpdate(schedule.getStudentId());
             if (balance == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该学生尚未录入课时信息");
             }
@@ -273,12 +286,9 @@ public class StudentScheduleController {
                 studentLessonConsumptionService.save(consumption);
             }
 
-            balance.setRemainingLessons(remaining - 1);
-            balance.setUpdatedAt(now);
-            studentLessonBalanceService.updateById(balance);
-
             schedule.setStatus(STATUS_COMPLETED);
             studentScheduleService.updateById(schedule);
+            studentLessonBalanceService.refreshStudentBalance(schedule.getStudentId());
         }
 
         return toView(schedule, student.getName(), consumption);
@@ -302,17 +312,11 @@ public class StudentScheduleController {
 
         StudentLessonConsumption consumption = studentLessonConsumptionMapper.findByScheduleId(scheduleId);
         if (STATUS_COMPLETED.equalsIgnoreCase(schedule.getStatus())) {
-            LocalDateTime now = LocalDateTime.now();
-            StudentLessonBalance balance = studentLessonBalanceService.getOne(
-                    Wrappers.<StudentLessonBalance>lambdaQuery().eq(StudentLessonBalance::getStudentId, schedule.getStudentId()));
+            studentLessonBalanceService.refreshStudentBalance(schedule.getStudentId());
+            StudentLessonBalance balance = studentLessonBalanceMapper.findByStudentIdForUpdate(schedule.getStudentId());
             if (balance == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该学生尚未录入课时信息");
             }
-
-            int remaining = balance.getRemainingLessons() == null ? 0 : balance.getRemainingLessons();
-            balance.setRemainingLessons(remaining + 1);
-            balance.setUpdatedAt(now);
-            studentLessonBalanceService.updateById(balance);
 
             if (consumption != null) {
                 studentLessonConsumptionService.removeById(consumption.getId());
@@ -321,6 +325,7 @@ public class StudentScheduleController {
 
             schedule.setStatus(STATUS_PLANNED);
             studentScheduleService.updateById(schedule);
+            studentLessonBalanceService.refreshStudentBalance(schedule.getStudentId());
         }
 
         return toView(schedule, student.getName(), consumption);

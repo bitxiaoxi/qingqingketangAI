@@ -2,6 +2,7 @@ package com.qingqingketang.config;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.annotation.Order;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
@@ -13,6 +14,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 
 @Component
+@Order(0)
 public class LegacySchemaRepairRunner implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(LegacySchemaRepairRunner.class);
@@ -42,6 +44,22 @@ public class LegacySchemaRepairRunner implements ApplicationRunner {
                     "trial_lessons",
                     "note",
                     "ALTER TABLE trial_lessons ADD COLUMN note VARCHAR(255) NULL COMMENT '备注'");
+            ensureColumn(connection,
+                    "student_lesson_balances",
+                    "purchased_lessons",
+                    "ALTER TABLE student_lesson_balances ADD COLUMN purchased_lessons INT NOT NULL DEFAULT 0 COMMENT '累计购买课时数'");
+            ensureColumn(connection,
+                    "student_lesson_balances",
+                    "scheduled_lessons",
+                    "ALTER TABLE student_lesson_balances ADD COLUMN scheduled_lessons INT NOT NULL DEFAULT 0 COMMENT '已排未销课时数'");
+            ensureColumn(connection,
+                    "student_lesson_balances",
+                    "completed_lessons",
+                    "ALTER TABLE student_lesson_balances ADD COLUMN completed_lessons INT NOT NULL DEFAULT 0 COMMENT '已销课时数'");
+            ensureColumn(connection,
+                    "student_lesson_balances",
+                    "schedulable_lessons",
+                    "ALTER TABLE student_lesson_balances ADD COLUMN schedulable_lessons INT NOT NULL DEFAULT 0 COMMENT '当前可继续排课时数'");
         } catch (SQLException exception) {
             throw new IllegalStateException("修复历史数据库字段失败", exception);
         }

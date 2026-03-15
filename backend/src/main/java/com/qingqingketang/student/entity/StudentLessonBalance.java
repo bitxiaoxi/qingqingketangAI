@@ -25,6 +25,18 @@ public class StudentLessonBalance {
     @TableField("remaining_lessons")
     private Integer remainingLessons;
 
+    @TableField("purchased_lessons")
+    private Integer purchasedLessons;
+
+    @TableField("scheduled_lessons")
+    private Integer scheduledLessons;
+
+    @TableField("completed_lessons")
+    private Integer completedLessons;
+
+    @TableField("schedulable_lessons")
+    private Integer schedulableLessons;
+
     @TableField("updated_at")
     private LocalDateTime updatedAt;
 }
