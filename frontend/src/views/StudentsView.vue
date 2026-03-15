@@ -1,59 +1,30 @@
 <template>
   <section class="page-stack">
-    <PageHeader
-      eyebrow="Students"
-      title="学生管理"
-      description="集中查看学生档案、课程规模和剩余课时，作为排课与收费的统一入口。"
-    >
-      <template #actions>
-        <el-button type="primary" @click="openCreateDialog">新增学生</el-button>
-      </template>
-    </PageHeader>
-
-    <el-card shadow="never" class="student-hero">
-      <div class="student-hero__body">
-        <div class="student-hero__intro">
-          <span class="student-hero__eyebrow">Student Directory</span>
-          <h3>标准化学生档案工作台</h3>
-          <p>支持快速搜索、紧凑查看、排课跳转和收费记录联动，适合日常高频运营使用。</p>
-        </div>
-
-        <div class="student-hero__stats">
-          <article v-for="stat in overviewStats" :key="stat.label" class="student-stat">
-            <span>{{ stat.label }}</span>
-            <strong>{{ stat.value }}</strong>
-            <small>{{ stat.helper }}</small>
-          </article>
-        </div>
-      </div>
-    </el-card>
-
-    <el-card shadow="never" class="panel-card">
-      <div class="filter-bar">
-        <div class="filter-bar__group">
-          <span class="filter-bar__label">姓名搜索</span>
-          <el-input v-model="filters.keyword" placeholder="输入学生姓名" clearable />
-        </div>
-        <div class="filter-bar__group">
-          <span class="filter-bar__label">年级筛选</span>
-          <el-select v-model="filters.grade" placeholder="全部年级" clearable>
-            <el-option v-for="grade in grades" :key="grade" :label="grade" :value="grade" />
-          </el-select>
-        </div>
-        <div class="filter-bar__actions">
-          <el-button @click="resetFilters">重置</el-button>
-        </div>
-      </div>
-    </el-card>
-
     <el-card shadow="never" class="panel-card student-table-card">
       <template #header>
         <div class="card-head">
           <div>
-            <span class="card-head__eyebrow">Directory</span>
             <h3>学生列表</h3>
+            <p class="card-head__meta">当前共 {{ filteredStudents.length }} 位学生</p>
           </div>
-          <span class="card-head__meta">当前共 {{ filteredStudents.length }} 位学生</span>
+          <div class="student-table-toolbar">
+            <el-input
+              v-model="filters.keyword"
+              placeholder="搜索学生姓名"
+              clearable
+              class="student-table-toolbar__search"
+            />
+            <el-select
+              v-model="filters.grade"
+              placeholder="全部年级"
+              clearable
+              class="student-table-toolbar__grade"
+            >
+              <el-option v-for="grade in grades" :key="grade" :label="grade" :value="grade" />
+            </el-select>
+            <el-button @click="resetFilters">重置</el-button>
+            <el-button type="primary" @click="openCreateDialog">新增学生</el-button>
+          </div>
         </div>
       </template>
 
@@ -81,10 +52,19 @@
         </el-table-column>
         <el-table-column prop="gender" label="性别" width="88" />
         <el-table-column prop="grade" label="年级" min-width="180" />
-        <el-table-column prop="courseCount" label="课程数量" width="110" />
-        <el-table-column label="剩余课时" width="120">
+        <el-table-column label="购买课时" width="110" sortable :sort-method="comparePurchasedLessons">
           <template #default="{ row }">
-            <span class="student-badge">{{ row.remainingLessons ?? 0 }} 节</span>
+            <span class="student-badge student-badge--neutral">{{ formatLessonCount(getPurchasedLessons(row)) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="已销课时" width="110" sortable :sort-method="compareCompletedLessons">
+          <template #default="{ row }">
+            <span class="student-badge student-badge--warm">{{ formatLessonCount(getCompletedLessons(row)) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="剩余课时" width="110" sortable :sort-method="compareRemainingLessons">
+          <template #default="{ row }">
+            <span class="student-badge">{{ formatLessonCount(getRemainingLessons(row)) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="录入时间" min-width="170">
@@ -185,12 +165,16 @@
 
         <div class="student-detail__stats">
           <article class="student-detail__stat">
-            <span>课程数量</span>
-            <strong>{{ selectedStudent.courseCount ?? 0 }}</strong>
+            <span>购买课时</span>
+            <strong>{{ formatLessonCount(getPurchasedLessons(selectedStudent)) }}</strong>
+          </article>
+          <article class="student-detail__stat">
+            <span>已销课时</span>
+            <strong>{{ formatLessonCount(getCompletedLessons(selectedStudent)) }}</strong>
           </article>
           <article class="student-detail__stat">
             <span>剩余课时</span>
-            <strong>{{ selectedStudent.remainingLessons ?? 0 }}</strong>
+            <strong>{{ formatLessonCount(getRemainingLessons(selectedStudent)) }}</strong>
           </article>
         </div>
 
@@ -214,7 +198,6 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import PageHeader from '../components/common/PageHeader.vue';
 import { genders, grades } from '../constants/options';
 import { api } from '../services/api';
 import { formatAmount, formatTimestamp, normalizeError } from '../utils/format';
@@ -245,31 +228,25 @@ const studentForm = reactive({
 
 const isEditMode = computed(() => formMode.value === 'edit');
 
-const overviewStats = computed(() => {
-  const totalRemainingLessons = students.value.reduce((sum, student) => sum + Number(student.remainingLessons ?? 0), 0);
-  const totalCourses = students.value.reduce((sum, student) => sum + Number(student.courseCount ?? 0), 0);
-  return [
-    {
-      label: '学生总数',
-      value: `${students.value.length}`,
-      helper: '当前在册学生规模'
-    },
-    {
-      label: '课程总量',
-      value: `${totalCourses}`,
-      helper: '全部学生已生成课程数'
-    },
-    {
-      label: '剩余课时',
-      value: `${totalRemainingLessons}`,
-      helper: '全体学生尚未消耗的课时'
-    }
-  ];
-});
-
 const shortTimestamp = (value) => {
   return value ? formatTimestamp(value).slice(0, 10) : '--';
 };
+
+const getPurchasedLessons = (student) => Math.max(0, Number(student?.lessonCount ?? 0));
+
+const getRemainingLessons = (student) => Math.max(0, Number(student?.remainingLessons ?? 0));
+
+const getCompletedLessons = (student) => {
+  return Math.max(0, getPurchasedLessons(student) - getRemainingLessons(student));
+};
+
+const formatLessonCount = (value) => `${Math.max(0, Number(value ?? 0))} 节`;
+
+const comparePurchasedLessons = (left, right) => getPurchasedLessons(left) - getPurchasedLessons(right);
+
+const compareCompletedLessons = (left, right) => getCompletedLessons(left) - getCompletedLessons(right);
+
+const compareRemainingLessons = (left, right) => getRemainingLessons(left) - getRemainingLessons(right);
 
 const loadStudents = async () => {
   loading.value = true;
@@ -395,93 +372,8 @@ onMounted(loadStudents);
 </script>
 
 <style scoped>
-.student-hero,
 .panel-card {
-  background: var(--app-surface);
-}
-
-.student-hero__body {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
-  gap: 20px;
-}
-
-.student-hero__eyebrow,
-.card-head__eyebrow,
-.dialog-intro__eyebrow {
-  display: inline-flex;
-  margin-bottom: 8px;
-  color: var(--app-text-tertiary);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.student-hero__intro h3 {
-  margin-bottom: 10px;
-  font-size: 28px;
-  line-height: 1.15;
-}
-
-.student-hero__intro p {
-  color: var(--app-text-secondary);
-  line-height: 1.7;
-}
-
-.student-hero__stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.student-stat {
-  padding: 16px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-surface-muted);
-}
-
-.student-stat span {
-  display: block;
-  margin-bottom: 10px;
-  color: var(--app-text-secondary);
-  font-size: 13px;
-}
-
-.student-stat strong {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 28px;
-  line-height: 1;
-}
-
-.student-stat small {
-  color: var(--app-text-tertiary);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.filter-bar {
-  display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(220px, 260px) auto;
-  gap: 16px;
-  align-items: end;
-}
-
-.filter-bar__group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.filter-bar__label {
-  color: var(--app-text-secondary);
-  font-size: 13px;
-}
-
-.filter-bar__actions {
-  display: flex;
-  justify-content: flex-end;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
 }
 
 .student-table-card :deep(.el-card__body) {
@@ -490,18 +382,38 @@ onMounted(loadStudents);
 
 .card-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
 }
 
 .card-head h3 {
-  font-size: 18px;
+  font-size: 22px;
+  line-height: 1.1;
 }
 
 .card-head__meta {
+  display: inline-flex;
+  margin-top: 8px;
   color: var(--app-text-secondary);
   font-size: 13px;
+}
+
+.student-table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  width: min(100%, 760px);
+}
+
+.student-table-toolbar__search {
+  width: min(280px, 100%);
+}
+
+.student-table-toolbar__grade {
+  width: 180px;
 }
 
 .student-table :deep(.el-table__cell) {
@@ -543,10 +455,29 @@ onMounted(loadStudents);
   font-weight: 600;
 }
 
+.student-badge--neutral {
+  background: rgba(226, 232, 240, 0.72);
+  color: #334155;
+}
+
+.student-badge--warm {
+  background: rgba(255, 237, 213, 0.88);
+  color: #c2410c;
+}
+
 .table-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+.dialog-intro__eyebrow {
+  display: inline-flex;
+  margin-bottom: 8px;
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .dialog-intro {
@@ -625,7 +556,7 @@ onMounted(loadStudents);
 
 .student-detail__stats {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -659,21 +590,21 @@ onMounted(loadStudents);
 }
 
 @media (max-width: 1200px) {
-  .student-hero__body,
-  .student-hero__stats {
-    grid-template-columns: 1fr;
+  .card-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .student-table-toolbar {
+    width: 100%;
+    justify-content: flex-start;
   }
 }
 
 @media (max-width: 900px) {
-  .filter-bar,
   .dialog-grid,
   .student-detail__stats {
     grid-template-columns: 1fr;
-  }
-
-  .filter-bar__actions {
-    justify-content: flex-start;
   }
 }
 </style>
