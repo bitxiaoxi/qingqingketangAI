@@ -69,7 +69,7 @@
         </el-table-column>
         <el-table-column label="录入时间" min-width="170">
           <template #default="{ row }">
-            {{ formatTimestamp(row.createdAt) }}
+            {{ shortTimestamp(row.createdAt) }}
           </template>
         </el-table-column>
         <el-table-column label="操作" min-width="270" fixed="right">

@@ -1,66 +1,13 @@
 <template>
   <section class="page-stack">
-    <PageHeader
-      eyebrow="Trial"
-      title="试听管理"
-      description="集中管理试听预约、试听状态和转化结果，适合培训机构日常运营跟进。"
-    >
-      <template #actions>
-        <el-button type="primary" @click="openCreateDialog">新增试听</el-button>
-      </template>
-    </PageHeader>
-
-    <el-card shadow="never" class="trial-hero">
-      <div class="trial-hero__body">
-        <div class="trial-hero__intro">
-          <span class="trial-hero__eyebrow">Trial Pipeline</span>
-          <h3>试听线索与转化跟进</h3>
-          <p>把试听预约、试听执行、报名结果放在同一个清晰页面中，便于快速跟踪与更新。</p>
-        </div>
-
-        <div class="trial-hero__stats">
-          <article v-for="stat in overviewStats" :key="stat.label" class="trial-stat">
-            <span>{{ stat.label }}</span>
-            <strong>{{ stat.value }}</strong>
-            <small>{{ stat.helper }}</small>
-          </article>
-        </div>
-      </div>
-    </el-card>
-
-    <el-card shadow="never" class="panel-card">
-      <div class="filter-bar">
-        <div class="filter-bar__group">
-          <span class="filter-bar__label">姓名搜索</span>
-          <el-input v-model="filters.keyword" placeholder="输入试听学生姓名" clearable />
-        </div>
-
-        <div class="filter-bar__group">
-          <span class="filter-bar__label">试听状态</span>
-          <el-select v-model="filters.status" placeholder="全部状态" clearable>
-            <el-option
-              v-for="status in trialStatusOptions"
-              :key="status.value"
-              :label="status.label"
-              :value="status.value"
-            />
-          </el-select>
-        </div>
-
-        <div class="filter-bar__actions">
-          <el-button @click="resetFilters">重置</el-button>
-        </div>
-      </div>
-    </el-card>
-
     <el-card shadow="never" class="panel-card trial-table-card">
       <template #header>
         <div class="card-head">
           <div>
-            <span class="card-head__eyebrow">Records</span>
             <h3>试听列表</h3>
+            <p class="card-head__meta">当前共 {{ filteredTrials.length }} 条试听记录</p>
           </div>
-          <span class="card-head__meta">当前共 {{ filteredTrials.length }} 条试听记录</span>
+          <el-button type="primary" @click="openCreateDialog">新增试听</el-button>
         </div>
       </template>
 
@@ -103,7 +50,6 @@
           <template #default="{ row }">
             <div class="table-actions">
               <el-button link type="primary" @click="openEditDialog(row)">编辑</el-button>
-              <el-button link @click="quickUpdateStatus(row, nextStatus(row.status))">推进状态</el-button>
             </div>
           </template>
         </el-table-column>
@@ -199,7 +145,6 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import PageHeader from '../components/common/PageHeader.vue';
 import { grades, trialStatusOptions } from '../constants/options';
 import { api } from '../services/api';
 import { formatTimestamp, normalizeError } from '../utils/format';
@@ -212,10 +157,6 @@ const trials = ref([]);
 const submitting = ref(false);
 const formDialogVisible = ref(false);
 const formMode = ref('create');
-const filters = reactive({
-  keyword: '',
-  status: ''
-});
 const trialForm = reactive({
   id: null,
   name: '',
@@ -241,34 +182,6 @@ const normalizedStatus = (status) => String(status ?? 'PENDING').toUpperCase();
 
 const isEditMode = computed(() => formMode.value === 'edit');
 
-const overviewStats = computed(() => {
-  const pending = trials.value.filter((trial) => normalizedStatus(trial.status) === 'PENDING').length;
-  const completed = trials.value.filter((trial) => normalizedStatus(trial.status) === 'COMPLETED').length;
-  const enrolled = trials.value.filter((trial) => normalizedStatus(trial.status) === 'ENROLLED').length;
-  return [
-    {
-      label: '试听总数',
-      value: `${trials.value.length}`,
-      helper: '当前所有试听记录'
-    },
-    {
-      label: '待试听',
-      value: `${pending}`,
-      helper: '待执行试听安排'
-    },
-    {
-      label: '已试听',
-      value: `${completed}`,
-      helper: '试听已完成待转化'
-    },
-    {
-      label: '已报名',
-      value: `${enrolled}`,
-      helper: '试听后成功转化'
-    }
-  ];
-});
-
 const loadTrials = async () => {
   loading.value = true;
   error.value = '';
@@ -282,13 +195,7 @@ const loadTrials = async () => {
 };
 
 const filteredTrials = computed(() => {
-  const keyword = filters.keyword.trim();
-  return trials.value.filter((trial) => {
-    const currentStatus = normalizedStatus(trial.status);
-    const matchesKeyword = !keyword || trial.name?.includes(keyword);
-    const matchesStatus = !filters.status || currentStatus === filters.status;
-    return matchesKeyword && matchesStatus;
-  });
+  return trials.value;
 });
 
 const resetForm = () => {
@@ -348,37 +255,6 @@ const submitTrialForm = async () => {
   }
 };
 
-const nextStatus = (status) => {
-  const current = normalizedStatus(status);
-  if (current === 'PENDING') return 'COMPLETED';
-  if (current === 'COMPLETED') return 'ENROLLED';
-  return current;
-};
-
-const quickUpdateStatus = async (trial, status) => {
-  if (!status || normalizedStatus(status) === normalizedStatus(trial.status)) {
-    return;
-  }
-  try {
-    await api.updateTrial(trial.id, {
-      name: trial.name,
-      grade: trial.grade,
-      trialTime: trial.trialTime,
-      status,
-      note: trial.note ?? ''
-    });
-    ElMessage.success(`试听状态已更新为${statusMetaMap[status]?.label ?? status}`);
-    await loadTrials();
-  } catch (requestError) {
-    ElMessage.error(normalizeError(requestError, '更新试听状态失败'));
-  }
-};
-
-const resetFilters = () => {
-  filters.keyword = '';
-  filters.status = '';
-};
-
 watch(
   () => route.query.action,
   (action) => {
@@ -393,107 +269,25 @@ onMounted(loadTrials);
 </script>
 
 <style scoped>
-.trial-hero,
 .panel-card {
-  background: var(--app-surface);
-}
-
-.trial-hero__body {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(360px, 1fr);
-  gap: 20px;
-}
-
-.trial-hero__eyebrow,
-.card-head__eyebrow,
-.dialog-intro__eyebrow {
-  display: inline-flex;
-  margin-bottom: 8px;
-  color: var(--app-text-tertiary);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.trial-hero__intro h3 {
-  margin-bottom: 10px;
-  font-size: 28px;
-  line-height: 1.15;
-}
-
-.trial-hero__intro p {
-  color: var(--app-text-secondary);
-  line-height: 1.7;
-}
-
-.trial-hero__stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.trial-stat {
-  padding: 16px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-surface-muted);
-}
-
-.trial-stat span {
-  display: block;
-  margin-bottom: 10px;
-  color: var(--app-text-secondary);
-  font-size: 13px;
-}
-
-.trial-stat strong {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 28px;
-  line-height: 1;
-}
-
-.trial-stat small {
-  color: var(--app-text-tertiary);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.filter-bar {
-  display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(220px, 260px) auto;
-  gap: 16px;
-  align-items: end;
-}
-
-.filter-bar__group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.filter-bar__label {
-  color: var(--app-text-secondary);
-  font-size: 13px;
-}
-
-.filter-bar__actions {
-  display: flex;
-  justify-content: flex-end;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
 }
 
 .card-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
 }
 
 .card-head h3 {
-  font-size: 18px;
+  font-size: 22px;
+  line-height: 1.1;
 }
 
 .card-head__meta {
+  display: inline-flex;
+  margin-top: 8px;
   color: var(--app-text-secondary);
   font-size: 13px;
 }
@@ -528,6 +322,15 @@ onMounted(loadTrials);
 .table-actions {
   display: flex;
   gap: 4px;
+}
+
+.dialog-intro__eyebrow {
+  display: inline-flex;
+  margin-bottom: 8px;
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .dialog-intro {
@@ -629,21 +432,16 @@ onMounted(loadTrials);
 }
 
 @media (max-width: 1200px) {
-  .trial-hero__body {
-    grid-template-columns: 1fr;
+  .card-head {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 
 @media (max-width: 900px) {
-  .filter-bar,
   .dialog-grid,
-  .status-chip-grid,
-  .trial-hero__stats {
+  .status-chip-grid {
     grid-template-columns: 1fr;
-  }
-
-  .filter-bar__actions {
-    justify-content: flex-start;
   }
 }
 </style>

@@ -195,18 +195,6 @@ const nextUpcomingSchedule = computed(() => {
   }) ?? null;
 });
 
-const scheduleHeroCaption = computed(() => {
-  if (!groupedSchedules.value.length) {
-    return '本周还没有课程安排。';
-  }
-
-  if (nextUpcomingSchedule.value) {
-    return `下一节课在 ${formatWeekday(nextUpcomingSchedule.value.startTime)} ${formatClock(nextUpcomingSchedule.value.startTime)}，${nextUpcomingSchedule.value.subject}，${nextUpcomingSchedule.value.participantLabel}。`;
-  }
-
-  return `本周共有 ${groupedSchedules.value.length} 节课程安排。`;
-});
-
 const schedulePosterUrl = computed(() => {
   if (!weekDays.value.length) {
     return '';
@@ -484,12 +472,20 @@ const schedulePosterUrl = computed(() => {
           <stop offset="0%" stop-color="#ffffff" stop-opacity="0.60" />
           <stop offset="100%" stop-color="#ffffff" stop-opacity="0.34" />
         </linearGradient>
+        <linearGradient id="titleInk" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#0f172a" />
+          <stop offset="55%" stop-color="#1e3a8a" />
+          <stop offset="100%" stop-color="#2563eb" />
+        </linearGradient>
         <pattern id="posterDots" width="28" height="28" patternUnits="userSpaceOnUse">
           <circle cx="4" cy="4" r="1.8" fill="rgba(191,219,254,0.58)" />
           <circle cx="18" cy="16" r="1.2" fill="rgba(125,211,252,0.42)" />
         </pattern>
         <filter id="softBlur" x="-20%" y="-20%" width="140%" height="140%">
           <feGaussianBlur stdDeviation="18" />
+        </filter>
+        <filter id="titleShadow" x="-20%" y="-40%" width="160%" height="220%">
+          <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#1d4ed8" flood-opacity="0.14" />
         </filter>
         <filter id="cardShadow" x="-20%" y="-20%" width="160%" height="180%">
           <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.10" />
@@ -510,10 +506,9 @@ const schedulePosterUrl = computed(() => {
       <circle cx="${width - 96}" cy="90" r="46" fill="rgba(255,255,255,0.32)" />
       <circle cx="${width - 152}" cy="136" r="18" fill="rgba(59,130,246,0.16)" />
       ${cuteDecorations}
-      <text x="${outerPadding}" y="${outerPadding + 34}" font-size="18" fill="#2563eb" font-weight="700">Qingqing Ketang</text>
-      <text x="${outerPadding}" y="${outerPadding + 82}" font-size="42" fill="#0f172a" font-weight="800">本周课程表</text>
-      <text x="${outerPadding}" y="${outerPadding + 114}" font-size="16" fill="#475569">${escapeSvgText(currentWeekLabel.value)}</text>
-      <text x="${outerPadding}" y="${outerPadding + 138}" font-size="14" fill="#64748b">${escapeSvgText(truncateText(scheduleHeroCaption.value, 56))}</text>
+      <text x="${outerPadding}" y="${outerPadding + 38}" font-size="19" fill="#2563eb" font-weight="800" letter-spacing="2.8" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif">QINGQINGKETANG</text>
+      <text x="${outerPadding}" y="${outerPadding + 88}" font-size="40" fill="url(#titleInk)" font-weight="800" letter-spacing="1.1" font-family="'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', sans-serif" filter="url(#titleShadow)">本周课程表</text>
+      <text x="${outerPadding}" y="${outerPadding + 120}" font-size="17" fill="#475569" font-weight="700" letter-spacing="0.9" font-family="'Avenir Next', 'DIN Alternate', 'Helvetica Neue', Arial, sans-serif">${escapeSvgText(currentWeekLabel.value)}</text>
       ${dayHeaders}
       ${verticalLines}
       ${timelineRail}

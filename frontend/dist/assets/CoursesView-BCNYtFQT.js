@@ -1,42 +1,42 @@
-import{a as yt}from"./api-BJ92196s.js";import{_ as kt,k as D,i as wt,o as Lt,b as m,c as A,d as vt,f as Mt,g as Z,e as Tt,h as z,n as _t,l as H,j as x,G as It,H as St,I as tt,J as Ct,v as Gt,u as Dt}from"./index-CbkC6q6x.js";const zt={class:"page-stack"},Ht={key:0,class:"page-state"},jt={key:2,class:"schedule-poster-section"},Nt={class:"schedule-poster-frame"},Bt={__name:"CoursesView",setup(Wt){const j=D(!1),T=D(""),E=D([]),N=D(wt(new Date)),f=e=>String(e??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"),_=(e,t)=>{const o=String(e??"");return o.length<=t?o:`${o.slice(0,Math.max(0,t-1))}…`},y=e=>{const t=new Date(e);return t.getHours()*60+t.getMinutes()},et=e=>{const t=Math.floor(e/60);return`${String(t).padStart(2,"0")}:00`},rt=e=>`data:image/svg+xml;charset=utf-8,${encodeURIComponent(e)}`,at=async()=>{j.value=!0,T.value="";try{E.value=await yt.listWeekSchedules(z(N.value))}catch(e){T.value=_t(e,"课表加载失败")}finally{j.value=!1}},ot=x(()=>(E.value??[]).slice().sort((e,t)=>new Date(e.startTime)-new Date(t.startTime)).map(e=>{const t=String(e.status??"").toUpperCase()==="COMPLETED";return{...e,scheduleId:e.id,studentName:e.studentName??"未命名",subject:e.subject??"正式课",timeRange:Dt(e.startTime,e.endTime),isCompleted:t}})),p=x(()=>{const e=new Map;return ot.value.forEach(t=>{const o=z(t.startTime),s=[o,t.startTime,t.endTime,t.subject].join("|"),a=e.get(s);if(a){a.scheduleIds.push(t.scheduleId),a.studentIds.add(t.studentId??t.scheduleId),a.studentNames.add(t.studentName),t.isCompleted?a.completedScheduleIds.push(t.scheduleId):a.pendingScheduleIds.push(t.scheduleId);return}e.set(s,{groupKey:s,dateKey:o,startTime:t.startTime,endTime:t.endTime,sortTime:new Date(t.startTime).getTime(),timeRange:t.timeRange,subject:t.subject,scheduleIds:[t.scheduleId],completedScheduleIds:t.isCompleted?[t.scheduleId]:[],pendingScheduleIds:t.isCompleted?[]:[t.scheduleId],studentIds:new Set([t.studentId??t.scheduleId]),studentNames:new Set([t.studentName])})}),Array.from(e.values()).map(t=>{const o=Array.from(t.studentNames),s=t.studentIds.size||t.scheduleIds.length,a=t.completedScheduleIds.length,h=t.pendingScheduleIds.length,w=a===t.scheduleIds.length,W=a>0&&h>0;return{groupKey:t.groupKey,dateKey:t.dateKey,startTime:t.startTime,endTime:t.endTime,sortTime:t.sortTime,timeRange:t.timeRange,subject:t.subject,scheduleIds:t.scheduleIds,participantCount:s,participantLabel:`共 ${s} 位学员`,studentNamesLabel:o.join("、"),completedCount:a,isCompleted:w,isPartial:W,sessionNote:s>1?"小组课":"单人课"}}).sort((t,o)=>t.sortTime-o.sortTime)}),I=x(()=>{const e=z(new Date);return It(N.value).map(t=>{const o=z(t),s=t.getDay(),a=p.value.filter(h=>h.dateKey===o);return{dateKey:o,weekday:tt(t),dateLabel:St(t),dateNumber:`${t.getDate()}`.padStart(2,"0"),monthLabel:`${t.getMonth()+1}月`,isToday:o===e,isWeekend:s===0||s===6,items:a}})}),it=x(()=>Ct(N.value)),k=x(()=>{const e=Date.now();return p.value.find(t=>!t.isCompleted&&new Date(t.startTime).getTime()>=e)??null}),st=x(()=>p.value.length?k.value?`下一节课在 ${tt(k.value.startTime)} ${Gt(k.value.startTime)}，${k.value.subject}，${k.value.participantLabel}。`:`本周共有 ${p.value.length} 节课程安排。`:"本周还没有课程安排。"),B=x(()=>{if(!I.value.length)return"";const e=1600,t=36,o=122,s=12,a=Math.floor((e-t*2-o-s*6)/7),h=162,w=78,W=38,lt=8*60,nt=22*60;let u=lt,S=nt;if(p.value.length){const r=Math.min(...p.value.map(i=>y(i.startTime))),n=Math.max(...p.value.map(i=>y(i.endTime)));u=Math.max(7*60,Math.floor(r/60)*60-60),S=Math.min(23*60,Math.ceil(n/60)*60+60),S-u<8*60&&(S=Math.min(23*60,u+8*60))}const P=Math.max(1,Math.ceil((S-u)/60)),L=84,g=t+h+w,C=P*L,l=g+C+W,$=t+o,v=t+h,ct=new Map(I.value.map((r,n)=>[r.dateKey,n])),V=7*a+6*s,U=e-t*2,O=h-24,K=v-16,R=C+w+8,G=$-24,Q=t+12,q=o-42,X=28,dt=I.value.map((r,n)=>{const i=$+n*(a+s),d=r.isToday?"#dbeafe":r.isWeekend?"#f0f9ff":"#ffffff",c=r.isToday?"#60a5fa":"#dbe7f3",M=r.items.length?`${r.items.length} 节课`:"空档";return`
+import{a as ut}from"./api-BJ92196s.js";import{_ as yt,k as G,i as bt,o as mt,b as y,c as K,d as kt,f as wt,g as R,e as Lt,h as C,n as Mt,l as N,j as M,G as vt,H as Tt,I as It,J as St,u as _t}from"./index-BSBLDv3V.js";const Gt={class:"page-stack"},Ct={key:0,class:"page-state"},Nt={key:2,class:"schedule-poster-section"},Dt={class:"schedule-poster-frame"},Ht={__name:"CoursesView",setup(zt){const D=G(!1),v=G(""),E=G([]),H=G(bt(new Date)),f=e=>String(e??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"),z=(e,t)=>{const o=String(e??"");return o.length<=t?o:`${o.slice(0,Math.max(0,t-1))}…`},b=e=>{const t=new Date(e);return t.getHours()*60+t.getMinutes()},J=e=>{const t=Math.floor(e/60);return`${String(t).padStart(2,"0")}:00`},tt=e=>`data:image/svg+xml;charset=utf-8,${encodeURIComponent(e)}`,et=async()=>{D.value=!0,v.value="";try{E.value=await ut.listWeekSchedules(C(H.value))}catch(e){v.value=Mt(e,"课表加载失败")}finally{D.value=!1}},rt=M(()=>(E.value??[]).slice().sort((e,t)=>new Date(e.startTime)-new Date(t.startTime)).map(e=>{const t=String(e.status??"").toUpperCase()==="COMPLETED";return{...e,scheduleId:e.id,studentName:e.studentName??"未命名",subject:e.subject??"正式课",timeRange:_t(e.startTime,e.endTime),isCompleted:t}})),$=M(()=>{const e=new Map;return rt.value.forEach(t=>{const o=C(t.startTime),s=[o,t.startTime,t.endTime,t.subject].join("|"),a=e.get(s);if(a){a.scheduleIds.push(t.scheduleId),a.studentIds.add(t.studentId??t.scheduleId),a.studentNames.add(t.studentName),t.isCompleted?a.completedScheduleIds.push(t.scheduleId):a.pendingScheduleIds.push(t.scheduleId);return}e.set(s,{groupKey:s,dateKey:o,startTime:t.startTime,endTime:t.endTime,sortTime:new Date(t.startTime).getTime(),timeRange:t.timeRange,subject:t.subject,scheduleIds:[t.scheduleId],completedScheduleIds:t.isCompleted?[t.scheduleId]:[],pendingScheduleIds:t.isCompleted?[]:[t.scheduleId],studentIds:new Set([t.studentId??t.scheduleId]),studentNames:new Set([t.studentName])})}),Array.from(e.values()).map(t=>{const o=Array.from(t.studentNames),s=t.studentIds.size||t.scheduleIds.length,a=t.completedScheduleIds.length,p=t.pendingScheduleIds.length,m=a===t.scheduleIds.length,j=a>0&&p>0;return{groupKey:t.groupKey,dateKey:t.dateKey,startTime:t.startTime,endTime:t.endTime,sortTime:t.sortTime,timeRange:t.timeRange,subject:t.subject,scheduleIds:t.scheduleIds,participantCount:s,participantLabel:`共 ${s} 位学员`,studentNamesLabel:o.join("、"),completedCount:a,isCompleted:m,isPartial:j,sessionNote:s>1?"小组课":"单人课"}}).sort((t,o)=>t.sortTime-o.sortTime)}),T=M(()=>{const e=C(new Date);return vt(H.value).map(t=>{const o=C(t),s=t.getDay(),a=$.value.filter(p=>p.dateKey===o);return{dateKey:o,weekday:It(t),dateLabel:Tt(t),dateNumber:`${t.getDate()}`.padStart(2,"0"),monthLabel:`${t.getMonth()+1}月`,isToday:o===e,isWeekend:s===0||s===6,items:a}})}),at=M(()=>St(H.value)),A=M(()=>{if(!T.value.length)return"";const e=1600,t=36,o=122,s=12,a=Math.floor((e-t*2-o-s*6)/7),p=162,m=78,j=38,ot=8*60,it=22*60;let x=ot,I=it;if($.value.length){const r=Math.min(...$.value.map(i=>b(i.startTime))),n=Math.max(...$.value.map(i=>b(i.endTime)));x=Math.max(7*60,Math.floor(r/60)*60-60),I=Math.min(23*60,Math.ceil(n/60)*60+60),I-x<8*60&&(I=Math.min(23*60,x+8*60))}const B=Math.max(1,Math.ceil((I-x)/60)),k=84,g=t+p+m,S=B*k,l=g+S+j,h=t+o,w=t+p,st=new Map(T.value.map((r,n)=>[r.dateKey,n])),Z=7*a+6*s,V=e-t*2,U=p-24,P=w-16,W=S+m+8,_=h-24,Q=t+12,O=o-42,X=28,lt=T.value.map((r,n)=>{const i=h+n*(a+s),d=r.isToday?"#dbeafe":r.isWeekend?"#f0f9ff":"#ffffff",c=r.isToday?"#60a5fa":"#dbe7f3",L=r.items.length?`${r.items.length} 节课`:"空档";return`
       <g>
-        <rect x="${i}" y="${v}" width="${a}" height="${w-12}" rx="22" fill="${d}" stroke="${c}" />
-        <text x="${i+18}" y="${v+30}" font-size="16" font-weight="700" fill="#0f172a">${f(r.weekday)}</text>
-        <text x="${i+18}" y="${v+54}" font-size="12" fill="#64748b">${f(`${r.monthLabel} ${r.dateNumber}`)}</text>
-        <text x="${i+a-18}" y="${v+54}" text-anchor="end" font-size="12" fill="${r.isToday?"#2563eb":"#94a3b8"}">${f(r.isToday?"今天":M)}</text>
+        <rect x="${i}" y="${w}" width="${a}" height="${m-12}" rx="22" fill="${d}" stroke="${c}" />
+        <text x="${i+18}" y="${w+30}" font-size="16" font-weight="700" fill="#0f172a">${f(r.weekday)}</text>
+        <text x="${i+18}" y="${w+54}" font-size="12" fill="#64748b">${f(`${r.monthLabel} ${r.dateNumber}`)}</text>
+        <text x="${i+a-18}" y="${w+54}" text-anchor="end" font-size="12" fill="${r.isToday?"#2563eb":"#94a3b8"}">${f(r.isToday?"今天":L)}</text>
       </g>
-    `}).join(""),ft=I.value.map((r,n)=>`<rect x="${$+n*(a+s)}" y="${g}" width="${a}" height="${C}" rx="26" fill="${r.isWeekend?"#f8fcff":"#ffffff"}" stroke="#e5edf5" />`).join(""),gt=Array.from({length:P+1},(r,n)=>{const i=g+n*L;return`
-      <line x1="${$}" y1="${i}" x2="${$+7*a+6*s}" y2="${i}" stroke="#e8eef5" />
-    `}).join(""),pt=`
+    `}).join(""),nt=T.value.map((r,n)=>`<rect x="${h+n*(a+s)}" y="${g}" width="${a}" height="${S}" rx="26" fill="${r.isWeekend?"#f8fcff":"#ffffff"}" stroke="#e5edf5" />`).join(""),ct=Array.from({length:B+1},(r,n)=>{const i=g+n*k;return`
+      <line x1="${h}" y1="${i}" x2="${h+7*a+6*s}" y2="${i}" stroke="#e8eef5" />
+    `}).join(""),dt=`
     <g>
-      <line x1="${G}" y1="${g+14}" x2="${G}" y2="${g+C-14}" stroke="rgba(148,163,184,0.38)" stroke-width="3" stroke-linecap="round" />
-      ${Array.from({length:P},(r,n)=>{const d=g+n*L+8,c=d+X/2,M=G+10,b=$-8;return`
+      <line x1="${_}" y1="${g+14}" x2="${_}" y2="${g+S-14}" stroke="rgba(148,163,184,0.38)" stroke-width="3" stroke-linecap="round" />
+      ${Array.from({length:B},(r,n)=>{const d=g+n*k+8,c=d+X/2,L=_+10,u=h-8;return`
           <g>
-            <rect x="${Q}" y="${d}" width="${q}" height="${X}" rx="14" fill="rgba(255,255,255,0.92)" stroke="rgba(191,219,254,0.92)" />
-            <text x="${Q+q/2}" y="${d+18}" text-anchor="middle" font-size="12" font-weight="700" fill="#475569">${f(et(u+n*60))}</text>
-            <circle cx="${G}" cy="${c}" r="5" fill="#ffffff" stroke="#93c5fd" stroke-width="3" />
-            <line x1="${M}" y1="${c}" x2="${b}" y2="${c}" stroke="rgba(191,219,254,0.78)" stroke-width="2" stroke-linecap="round" />
+            <rect x="${Q}" y="${d}" width="${O}" height="${X}" rx="14" fill="rgba(255,255,255,0.92)" stroke="rgba(191,219,254,0.92)" />
+            <text x="${Q+O/2}" y="${d+18}" text-anchor="middle" font-size="12" font-weight="700" fill="#475569">${f(J(x+n*60))}</text>
+            <circle cx="${_}" cy="${c}" r="5" fill="#ffffff" stroke="#93c5fd" stroke-width="3" />
+            <line x1="${L}" y1="${c}" x2="${u}" y2="${c}" stroke="rgba(191,219,254,0.78)" stroke-width="2" stroke-linecap="round" />
           </g>
         `}).join("")}
     </g>
-  `,ht=r=>r.isCompleted?{fill:"#f0fdf4",stroke:"#86efac",accent:"#22c55e",badge:"#dcfce7",badgeText:"#15803d"}:r.isPartial?{fill:"#eff6ff",stroke:"#93c5fd",accent:"#3b82f6",badge:"#dbeafe",badgeText:"#1d4ed8"}:{fill:"#fff7ed",stroke:"#fdba74",accent:"#f59e0b",badge:"#ffedd5",badgeText:"#c2410c"},$t=p.value.map(r=>{const n=ct.get(r.dateKey);if(n===void 0)return"";const i=ht(r),d=$+n*(a+s)+10,c=g+(y(r.startTime)-u)/60*L+8,M=a-20,b=Math.max(76,(y(r.endTime)-y(r.startTime))/60*L-12),Y=10,J=d+3,F=b<102,mt=r.isCompleted?"已销课":r.isPartial?`已销 ${r.completedCount}/${r.scheduleIds.length}`:`${r.sessionNote} · ${r.participantLabel}`;return`
+  `,ft=r=>r.isCompleted?{fill:"#f0fdf4",stroke:"#86efac",accent:"#22c55e",badge:"#dcfce7",badgeText:"#15803d"}:r.isPartial?{fill:"#eff6ff",stroke:"#93c5fd",accent:"#3b82f6",badge:"#dbeafe",badgeText:"#1d4ed8"}:{fill:"#fff7ed",stroke:"#fdba74",accent:"#f59e0b",badge:"#ffedd5",badgeText:"#c2410c"},gt=$.value.map(r=>{const n=st.get(r.dateKey);if(n===void 0)return"";const i=ft(r),d=h+n*(a+s)+10,c=g+(b(r.startTime)-x)/60*k+8,L=a-20,u=Math.max(76,(b(r.endTime)-b(r.startTime))/60*k-12),Y=10,q=d+3,F=u<102,xt=r.isCompleted?"已销课":r.isPartial?`已销 ${r.completedCount}/${r.scheduleIds.length}`:`${r.sessionNote} · ${r.participantLabel}`;return`
       <g filter="url(#cardShadow)">
-        <rect x="${d}" y="${c}" width="${M}" height="${b}" rx="20" fill="${i.fill}" stroke="${i.stroke}" />
-        <line x1="${J}" y1="${c+Y}" x2="${J}" y2="${c+b-Y}" stroke="${i.accent}" stroke-width="5" stroke-linecap="round" />
+        <rect x="${d}" y="${c}" width="${L}" height="${u}" rx="20" fill="${i.fill}" stroke="${i.stroke}" />
+        <line x1="${q}" y1="${c+Y}" x2="${q}" y2="${c+u-Y}" stroke="${i.accent}" stroke-width="5" stroke-linecap="round" />
         <rect x="${d+14}" y="${c+14}" width="74" height="24" rx="12" fill="${i.badge}" />
         <text x="${d+51}" y="${c+30}" text-anchor="middle" font-size="11" font-weight="600" fill="${i.badgeText}">${f(r.timeRange)}</text>
-        <text x="${d+14}" y="${c+58}" font-size="17" font-weight="700" fill="#0f172a">${f(_(r.subject,14))}</text>
-        ${F?"":`<text x="${d+14}" y="${c+80}" font-size="12" fill="#475569">${f(_(r.studentNamesLabel,24))}</text>`}
+        <text x="${d+14}" y="${c+58}" font-size="17" font-weight="700" fill="#0f172a">${f(z(r.subject,14))}</text>
+        ${F?"":`<text x="${d+14}" y="${c+80}" font-size="12" fill="#475569">${f(z(r.studentNamesLabel,24))}</text>`}
         ${F?"":`<text x="${d+14}" y="${c+100}" font-size="11" fill="#64748b">${f(r.participantLabel)}</text>`}
-        <text x="${d+14}" y="${c+b-18}" font-size="11" fill="${i.badgeText}">${f(_(mt,18))}</text>
+        <text x="${d+14}" y="${c+u-18}" font-size="11" fill="${i.badgeText}">${f(z(xt,18))}</text>
       </g>
-    `}).join(""),xt=p.value.length?"":`
+    `}).join(""),pt=$.value.length?"":`
       <g>
-        <rect x="${$+120}" y="${g+110}" width="${V-240}" height="220" rx="36" fill="rgba(255,255,255,0.84)" stroke="#dbe7f3" />
+        <rect x="${h+120}" y="${g+110}" width="${Z-240}" height="220" rx="36" fill="rgba(255,255,255,0.84)" stroke="#dbe7f3" />
         <text x="${e/2}" y="${g+206}" text-anchor="middle" font-size="34" font-weight="700" fill="#0f172a">本周暂无课程安排</text>
         <text x="${e/2}" y="${g+246}" text-anchor="middle" font-size="16" fill="#64748b">如需新增课程，请前往排课管理。</text>
       </g>
-    `,ut=`
+    `,ht=`
     <g opacity="0.96">
       <g transform="translate(-54 ${l-134})" opacity="0.78">
         <path d="M 0 96 A 96 96 0 0 1 192 96" fill="none" stroke="#fb7185" stroke-width="16" stroke-linecap="round" />
@@ -121,7 +121,7 @@ import{a as yt}from"./api-BJ92196s.js";import{_ as kt,k as D,i as wt,o as Lt,b a
         <path d="M ${t+226} 114 L ${t+230} 106 L ${t+234} 114 L ${t+242} 118 L ${t+234} 122 L ${t+230} 130 L ${t+226} 122 L ${t+218} 118 Z" fill="rgba(125,211,252,0.88)" />
       </g>
     </g>
-  `,bt=`
+  `,$t=`
     <svg xmlns="http://www.w3.org/2000/svg" width="${e}" height="${l}" viewBox="0 0 ${e} ${l}">
       <defs>
         <linearGradient id="posterBg" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -144,12 +144,20 @@ import{a as yt}from"./api-BJ92196s.js";import{_ as kt,k as D,i as wt,o as Lt,b a
           <stop offset="0%" stop-color="#ffffff" stop-opacity="0.60" />
           <stop offset="100%" stop-color="#ffffff" stop-opacity="0.34" />
         </linearGradient>
+        <linearGradient id="titleInk" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#0f172a" />
+          <stop offset="55%" stop-color="#1e3a8a" />
+          <stop offset="100%" stop-color="#2563eb" />
+        </linearGradient>
         <pattern id="posterDots" width="28" height="28" patternUnits="userSpaceOnUse">
           <circle cx="4" cy="4" r="1.8" fill="rgba(191,219,254,0.58)" />
           <circle cx="18" cy="16" r="1.2" fill="rgba(125,211,252,0.42)" />
         </pattern>
         <filter id="softBlur" x="-20%" y="-20%" width="140%" height="140%">
           <feGaussianBlur stdDeviation="18" />
+        </filter>
+        <filter id="titleShadow" x="-20%" y="-40%" width="160%" height="220%">
+          <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#1d4ed8" flood-opacity="0.14" />
         </filter>
         <filter id="cardShadow" x="-20%" y="-20%" width="160%" height="180%">
           <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.10" />
@@ -162,23 +170,22 @@ import{a as yt}from"./api-BJ92196s.js";import{_ as kt,k as D,i as wt,o as Lt,b a
       <path d="M 0 ${l-168} C 240 ${l-236}, 460 ${l-80}, 760 ${l-138} S 1290 ${l-230}, ${e} ${l-124} L ${e} ${l} L 0 ${l} Z" fill="rgba(255,255,255,0.26)" />
       <path d="M ${e-410} 54 C ${e-330} 18, ${e-232} 20, ${e-164} 82" fill="none" stroke="rgba(255,255,255,0.60)" stroke-width="3" stroke-linecap="round" />
       <path d="M 110 102 C 190 54, 302 54, 386 98" fill="none" stroke="rgba(59,130,246,0.16)" stroke-width="4" stroke-linecap="round" />
-      <rect x="${t}" y="${t}" width="${U}" height="${O}" rx="34" fill="url(#headerGlass)" stroke="rgba(255,255,255,0.88)" />
-      <rect x="${t+14}" y="${t+14}" width="${U-28}" height="${O-28}" rx="28" fill="rgba(255,255,255,0.12)" stroke="rgba(191,219,254,0.38)" />
-      <rect x="${t}" y="${K}" width="${o-18}" height="${R}" rx="30" fill="url(#boardGlass)" stroke="rgba(203,213,225,0.82)" />
-      <rect x="${t+10}" y="${K+14}" width="${o-38}" height="${R-28}" rx="24" fill="rgba(255,255,255,0.30)" stroke="rgba(255,255,255,0.42)" />
-      <rect x="${$-18}" y="${K}" width="${V+36}" height="${R}" rx="34" fill="url(#boardGlass)" stroke="rgba(191,219,254,0.82)" />
+      <rect x="${t}" y="${t}" width="${V}" height="${U}" rx="34" fill="url(#headerGlass)" stroke="rgba(255,255,255,0.88)" />
+      <rect x="${t+14}" y="${t+14}" width="${V-28}" height="${U-28}" rx="28" fill="rgba(255,255,255,0.12)" stroke="rgba(191,219,254,0.38)" />
+      <rect x="${t}" y="${P}" width="${o-18}" height="${W}" rx="30" fill="url(#boardGlass)" stroke="rgba(203,213,225,0.82)" />
+      <rect x="${t+10}" y="${P+14}" width="${o-38}" height="${W-28}" rx="24" fill="rgba(255,255,255,0.30)" stroke="rgba(255,255,255,0.42)" />
+      <rect x="${h-18}" y="${P}" width="${Z+36}" height="${W}" rx="34" fill="url(#boardGlass)" stroke="rgba(191,219,254,0.82)" />
       <circle cx="${e-96}" cy="90" r="46" fill="rgba(255,255,255,0.32)" />
       <circle cx="${e-152}" cy="136" r="18" fill="rgba(59,130,246,0.16)" />
-      ${ut}
-      <text x="${t}" y="${t+34}" font-size="18" fill="#2563eb" font-weight="700">Qingqing Ketang</text>
-      <text x="${t}" y="${t+82}" font-size="42" fill="#0f172a" font-weight="800">本周课程表</text>
-      <text x="${t}" y="${t+114}" font-size="16" fill="#475569">${f(it.value)}</text>
-      <text x="${t}" y="${t+138}" font-size="14" fill="#64748b">${f(_(st.value,56))}</text>
+      ${ht}
+      <text x="${t}" y="${t+38}" font-size="19" fill="#2563eb" font-weight="800" letter-spacing="2.8" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif">QINGQINGKETANG</text>
+      <text x="${t}" y="${t+88}" font-size="40" fill="url(#titleInk)" font-weight="800" letter-spacing="1.1" font-family="'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', sans-serif" filter="url(#titleShadow)">本周课程表</text>
+      <text x="${t}" y="${t+120}" font-size="17" fill="#475569" font-weight="700" letter-spacing="0.9" font-family="'Avenir Next', 'DIN Alternate', 'Helvetica Neue', Arial, sans-serif">${f(at.value)}</text>
+      ${lt}
+      ${nt}
       ${dt}
-      ${ft}
-      ${pt}
+      ${ct}
       ${gt}
-      ${$t}
-      ${xt}
+      ${pt}
     </svg>
-  `;return rt(bt)});return Lt(async()=>{await at()}),(e,t)=>{const o=H("el-alert"),s=H("el-image"),a=H("el-empty"),h=H("el-card");return m(),A("section",zt,[vt(h,{shadow:"never",class:"schedule-board-card"},{default:Mt(()=>[j.value?(m(),A("div",Ht,"课表加载中…")):T.value?(m(),Z(o,{key:1,title:T.value,type:"error","show-icon":"",closable:!1},null,8,["title"])):(m(),A("div",jt,[Tt("div",Nt,[B.value?(m(),Z(s,{key:0,src:B.value,"preview-src-list":[B.value],class:"schedule-poster-image",fit:"contain","preview-teleported":"","hide-on-click-modal":""},null,8,["src","preview-src-list"])):(m(),Z(a,{key:1,description:"本周暂无排课安排","image-size":72}))])]))]),_:1})])}}},Rt=kt(Bt,[["__scopeId","data-v-71d77f09"]]);export{Rt as default};
+  `;return tt($t)});return mt(async()=>{await et()}),(e,t)=>{const o=N("el-alert"),s=N("el-image"),a=N("el-empty"),p=N("el-card");return y(),K("section",Gt,[kt(p,{shadow:"never",class:"schedule-board-card"},{default:wt(()=>[D.value?(y(),K("div",Ct,"课表加载中…")):v.value?(y(),R(o,{key:1,title:v.value,type:"error","show-icon":"",closable:!1},null,8,["title"])):(y(),K("div",Nt,[Lt("div",Dt,[A.value?(y(),R(s,{key:0,src:A.value,"preview-src-list":[A.value],class:"schedule-poster-image",fit:"contain","preview-teleported":"","hide-on-click-modal":""},null,8,["src","preview-src-list"])):(y(),R(a,{key:1,description:"本周暂无排课安排","image-size":72}))])]))]),_:1})])}}},Bt=yt(Ht,[["__scopeId","data-v-49d1e259"]]);export{Bt as default};
