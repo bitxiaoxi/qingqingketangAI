@@ -5,6 +5,11 @@
       <el-alert v-else-if="error" :title="error" type="error" show-icon :closable="false" />
       <div v-else class="schedule-poster-section">
         <div class="schedule-poster-frame">
+          <div class="schedule-poster-toolbar">
+            <el-button class="schedule-print-button" :disabled="!schedulePosterUrl" @click="printSchedulePoster">
+              打印课表
+            </el-button>
+          </div>
           <el-image
             v-if="schedulePosterUrl"
             :src="schedulePosterUrl"
@@ -70,6 +75,111 @@ const formatHourMark = (minutes) => {
 
 const createSvgImageUrl = (svg) => {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+};
+
+const printSchedulePoster = () => {
+  if (!schedulePosterUrl.value || typeof window === 'undefined' || typeof document === 'undefined') {
+    return;
+  }
+
+  const printFrame = document.createElement('iframe');
+  printFrame.setAttribute('aria-hidden', 'true');
+  printFrame.style.position = 'fixed';
+  printFrame.style.width = '0';
+  printFrame.style.height = '0';
+  printFrame.style.border = '0';
+  printFrame.style.right = '0';
+  printFrame.style.bottom = '0';
+  document.body.appendChild(printFrame);
+
+  const cleanup = () => {
+    window.setTimeout(() => {
+      if (document.body.contains(printFrame)) {
+        document.body.removeChild(printFrame);
+      }
+    }, 300);
+  };
+
+  const frameWindow = printFrame.contentWindow;
+  if (!frameWindow) {
+    cleanup();
+    return;
+  }
+
+  const posterTitle = escapeSvgText(`本周课程表 ${currentWeekLabel.value}`);
+  frameWindow.document.open();
+  frameWindow.document.write(`
+    <!doctype html>
+    <html lang="zh-CN">
+      <head>
+        <meta charset="UTF-8" />
+        <title>${posterTitle}</title>
+        <style>
+          @page {
+            size: landscape;
+            margin: 6mm;
+          }
+
+          html,
+          body {
+            margin: 0;
+            padding: 0;
+            background: #ffffff;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          .print-sheet {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+          }
+
+          img {
+            display: block;
+            width: auto;
+            height: auto;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="print-sheet">
+          <img id="poster" src="${schedulePosterUrl.value}" alt="${posterTitle}" />
+        </div>
+      </body>
+    </html>
+  `);
+  frameWindow.document.close();
+
+  const printImage = frameWindow.document.getElementById('poster');
+  const triggerPrint = () => {
+    frameWindow.focus();
+    frameWindow.print();
+  };
+
+  frameWindow.onafterprint = cleanup;
+
+  if (printImage?.complete) {
+    window.setTimeout(triggerPrint, 120);
+    return;
+  }
+
+  printImage?.addEventListener('load', () => {
+    window.setTimeout(triggerPrint, 120);
+  }, { once: true });
+
+  printImage?.addEventListener('error', cleanup, { once: true });
 };
 
 const loadSchedules = async () => {
@@ -530,9 +640,11 @@ onMounted(async () => {
 .schedule-board-card {
   position: relative;
   overflow: hidden;
+  border: 0;
   background:
     radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 30%),
     linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: none;
 }
 
 .schedule-board-card::before {
@@ -549,28 +661,55 @@ onMounted(async () => {
 .schedule-board-card :deep(.el-card__body) {
   position: relative;
   z-index: 1;
+  padding: 0;
 }
 
 .schedule-poster-section {
-  margin-top: 4px;
+  margin-top: 0;
+}
+
+.schedule-poster-toolbar {
+  position: absolute;
+  top: 52px;
+  right: 34px;
+  z-index: 3;
+}
+
+.schedule-print-button {
+  --el-button-bg-color: rgba(255, 255, 255, 0.72);
+  --el-button-border-color: rgba(255, 255, 255, 0.78);
+  --el-button-text-color: #1d4ed8;
+  --el-button-hover-bg-color: rgba(239, 246, 255, 0.98);
+  --el-button-hover-border-color: rgba(147, 197, 253, 0.92);
+  --el-button-hover-text-color: #1d4ed8;
+  --el-button-disabled-bg-color: rgba(255, 255, 255, 0.6);
+  --el-button-disabled-border-color: rgba(255, 255, 255, 0.68);
+  --el-button-disabled-text-color: #94a3b8;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  backdrop-filter: blur(18px);
+  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.12);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .schedule-poster-frame {
-  padding: 18px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 24px;
-  background:
-    radial-gradient(circle at top right, rgba(125, 211, 252, 0.16), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 0;
+  border-radius: 30px;
+  background: transparent;
 }
 
 .schedule-poster-image {
   display: block;
   width: 100%;
-  border-radius: 22px;
+  border-radius: 30px;
   overflow: hidden;
-  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 22px 52px rgba(15, 23, 42, 0.14);
   cursor: zoom-in;
 }
 
@@ -578,21 +717,21 @@ onMounted(async () => {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 22px;
+  border-radius: 30px;
 }
 
 @media (max-width: 900px) {
-  .schedule-poster-frame {
-    padding: 12px;
-    border-radius: 20px;
+  .schedule-poster-toolbar {
+    top: 30px;
+    right: 20px;
   }
 
   .schedule-poster-image {
-    border-radius: 18px;
+    border-radius: 22px;
   }
 
   .schedule-poster-image :deep(.el-image__inner) {
-    border-radius: 18px;
+    border-radius: 22px;
   }
 }
 </style>
