@@ -345,6 +345,7 @@ const schedulePosterUrl = computed(() => {
   const gridAreaWidth = 7 * columnWidth + 6 * columnGap;
   const titlePanelWidth = width - outerPadding * 2;
   const titlePanelHeight = headerHeight - 24;
+  const titleTextX = outerPadding + 24;
   const boardPanelY = dayHeaderTop - 16;
   const boardPanelHeight = gridHeight + dayHeaderHeight + 8;
   const timelineAxisX = gridLeft - 24;
@@ -616,9 +617,9 @@ const schedulePosterUrl = computed(() => {
       <circle cx="${width - 96}" cy="90" r="46" fill="rgba(255,255,255,0.32)" />
       <circle cx="${width - 152}" cy="136" r="18" fill="rgba(59,130,246,0.16)" />
       ${cuteDecorations}
-      <text x="${outerPadding}" y="${outerPadding + 38}" font-size="19" fill="#2563eb" font-weight="800" letter-spacing="2.8" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif">QINGQINGKETANG</text>
-      <text x="${outerPadding}" y="${outerPadding + 88}" font-size="40" fill="url(#titleInk)" font-weight="800" letter-spacing="1.1" font-family="'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', sans-serif" filter="url(#titleShadow)">本周课程表</text>
-      <text x="${outerPadding}" y="${outerPadding + 120}" font-size="17" fill="#475569" font-weight="700" letter-spacing="0.9" font-family="'Avenir Next', 'DIN Alternate', 'Helvetica Neue', Arial, sans-serif">${escapeSvgText(currentWeekLabel.value)}</text>
+      <text x="${titleTextX}" y="${outerPadding + 38}" font-size="19" fill="#2563eb" font-weight="800" letter-spacing="2.8" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif">QINGQINGKETANG</text>
+      <text x="${titleTextX}" y="${outerPadding + 88}" font-size="40" fill="url(#titleInk)" font-weight="800" letter-spacing="1.1" font-family="'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', sans-serif" filter="url(#titleShadow)">本周课程表</text>
+      <text x="${titleTextX}" y="${outerPadding + 120}" font-size="17" fill="#475569" font-weight="700" letter-spacing="0.9" font-family="'Avenir Next', 'DIN Alternate', 'Helvetica Neue', Arial, sans-serif">${escapeSvgText(currentWeekLabel.value)}</text>
       ${dayHeaders}
       ${verticalLines}
       ${timelineRail}
@@ -641,27 +642,20 @@ onMounted(async () => {
   position: relative;
   overflow: hidden;
   border: 0;
-  background:
-    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 30%),
-    linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  border-radius: 30px;
+  background: transparent;
   box-shadow: none;
 }
 
 .schedule-board-card::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 180px;
-  background:
-    linear-gradient(135deg, rgba(59, 130, 246, 0.08), transparent 55%),
-    radial-gradient(circle at 18% 18%, rgba(14, 165, 233, 0.12), transparent 26%);
-  pointer-events: none;
+  display: none;
 }
 
 .schedule-board-card :deep(.el-card__body) {
   position: relative;
   z-index: 1;
   padding: 0;
+  background: transparent;
 }
 
 .schedule-poster-section {
@@ -698,6 +692,7 @@ onMounted(async () => {
   position: relative;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   padding: 0;
   border: 0;
   border-radius: 30px;
@@ -709,7 +704,7 @@ onMounted(async () => {
   width: 100%;
   border-radius: 30px;
   overflow: hidden;
-  box-shadow: 0 22px 52px rgba(15, 23, 42, 0.14);
+  box-shadow: none;
   cursor: zoom-in;
 }
 
@@ -727,6 +722,11 @@ onMounted(async () => {
   }
 
   .schedule-poster-image {
+    border-radius: 22px;
+  }
+
+  .schedule-poster-frame,
+  .schedule-board-card {
     border-radius: 22px;
   }
 
