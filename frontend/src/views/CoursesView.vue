@@ -338,7 +338,8 @@ const schedulePosterUrl = computed(() => {
   const hourHeight = 84;
   const gridTop = outerPadding + headerHeight + dayHeaderHeight;
   const gridHeight = hourRows * hourHeight;
-  const height = gridTop + gridHeight + bottomPadding;
+  const gridBottom = gridTop + gridHeight;
+  const height = gridBottom + bottomPadding;
   const gridLeft = outerPadding + leftRail;
   const dayHeaderTop = outerPadding + headerHeight;
   const dayIndexMap = new Map(weekDays.value.map((day, index) => [day.dateKey, index]));
@@ -347,7 +348,7 @@ const schedulePosterUrl = computed(() => {
   const titlePanelHeight = headerHeight - 24;
   const titleTextX = outerPadding + 24;
   const boardPanelY = dayHeaderTop - 16;
-  const boardPanelHeight = gridHeight + dayHeaderHeight + 8;
+  const boardPanelHeight = gridBottom - boardPanelY;
   const timelineAxisX = gridLeft - 24;
   const timelineLabelX = outerPadding + 12;
   const timelineLabelWidth = leftRail - 42;
@@ -382,7 +383,7 @@ const schedulePosterUrl = computed(() => {
 
   const timelineRail = `
     <g>
-      <line x1="${timelineAxisX}" y1="${gridTop + 14}" x2="${timelineAxisX}" y2="${gridTop + gridHeight - 14}" stroke="rgba(148,163,184,0.38)" stroke-width="3" stroke-linecap="round" />
+      <line x1="${timelineAxisX}" y1="${gridTop + 14}" x2="${timelineAxisX}" y2="${gridBottom - 14}" stroke="rgba(148,163,184,0.38)" stroke-width="3" stroke-linecap="round" />
       ${Array.from({ length: hourRows }, (_, index) => {
         const y = gridTop + index * hourHeight;
         const labelY = y + 8;
