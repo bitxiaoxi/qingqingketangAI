@@ -13,18 +13,18 @@
       <div v-else class="schedule-poster-section">
         <div class="schedule-poster-frame">
           <div class="schedule-poster-toolbar">
-            <el-button class="schedule-toolbar-button" :disabled="loading" @click="handleWeekChange(-1)">
+            <el-button class="schedule-toolbar-button" :disabled="loading || Boolean(processingGroupKey)" @click="handleWeekChange(-1)">
               上一周
             </el-button>
-            <el-button class="schedule-toolbar-button" :disabled="loading" @click="goToCurrentWeek">
+            <el-button class="schedule-toolbar-button" :disabled="loading || Boolean(processingGroupKey)" @click="goToCurrentWeek">
               回到本周
             </el-button>
-            <el-button class="schedule-toolbar-button" :disabled="loading" @click="handleWeekChange(1)">
+            <el-button class="schedule-toolbar-button" :disabled="loading || Boolean(processingGroupKey)" @click="handleWeekChange(1)">
               下一周
             </el-button>
             <el-button
               class="schedule-toolbar-button"
-              :disabled="loading || Boolean(error) || !schedulePosterUrl"
+              :disabled="loading || Boolean(processingGroupKey) || Boolean(error) || !schedulePosterUrl"
               @click="printSchedulePoster"
             >
               打印课表
@@ -39,6 +39,21 @@
             preview-teleported
             hide-on-click-modal
           />
+          <div v-if="scheduleActionOverlays.length" class="schedule-poster-action-layer">
+            <button
+              v-for="action in scheduleActionOverlays"
+              :key="action.groupKey"
+              type="button"
+              class="schedule-session-action"
+              :data-state="action.state"
+              :disabled="Boolean(processingGroupKey)"
+              :style="action.style"
+              :aria-label="action.ariaLabel"
+              @click.stop="toggleScheduleGroupStatus(action)"
+            >
+              {{ processingGroupKey === action.groupKey ? '处理中' : action.label }}
+            </button>
+          </div>
           <el-empty v-else description="该周暂无排课安排" :image-size="72" />
         </div>
       </div>
@@ -47,6 +62,7 @@
 </template>
 
 <script setup>
+import { ElMessage } from 'element-plus';
 import { computed, onMounted, ref } from 'vue';
 import { api } from '../services/api';
 import {
@@ -67,6 +83,7 @@ const loading = ref(false);
 const error = ref('');
 const schedules = ref([]);
 const currentWeekStart = ref(getWeekStart(new Date()));
+const processingGroupKey = ref('');
 let activeLoadRequestId = 0;
 
 const escapeSvgText = (value) => {
@@ -228,6 +245,19 @@ const loadSchedules = async (weekStart = currentWeekStart.value) => {
   }
 };
 
+const updateScheduleStatusesLocally = (scheduleIds, status) => {
+  const idSet = new Set((scheduleIds ?? []).map((id) => String(id)));
+  schedules.value = (schedules.value ?? []).map((schedule) => {
+    if (!idSet.has(String(schedule.id))) {
+      return schedule;
+    }
+    return {
+      ...schedule,
+      status
+    };
+  });
+};
+
 const normalizedSchedules = computed(() => {
   return (schedules.value ?? [])
     .slice()
@@ -299,10 +329,13 @@ const groupedSchedules = computed(() => {
         timeRange: group.timeRange,
         subject: group.subject,
         scheduleIds: group.scheduleIds,
+        completedScheduleIds: group.completedScheduleIds,
+        pendingScheduleIds: group.pendingScheduleIds,
         participantCount,
         participantLabel: `共 ${participantCount} 位学员`,
         studentNamesLabel: studentNames.join('、'),
         completedCount,
+        pendingCount,
         isCompleted,
         isPartial,
         sessionNote: participantCount > 1 ? '小组课' : '单人课'
@@ -354,6 +387,20 @@ const weekRelativeLabel = computed(() => {
 
 const weekHeadingLabel = computed(() => `${weekRelativeLabel.value}课程表`);
 
+const getScheduleActionLabel = (schedule) => {
+  return schedule.isCompleted ? '已销课' : '待销课';
+};
+
+const getScheduleActionAriaLabel = (schedule) => {
+  if (schedule.isCompleted) {
+    return `取消 ${schedule.timeRange} ${schedule.subject} 的销课`;
+  }
+  if (schedule.isPartial) {
+    return `继续为 ${schedule.timeRange} ${schedule.subject} 销课`;
+  }
+  return `为 ${schedule.timeRange} ${schedule.subject} 销课`;
+};
+
 const handleWeekChange = async (offset) => {
   const nextWeekStart = new Date(currentWeekStart.value);
   nextWeekStart.setDate(nextWeekStart.getDate() + offset * 7);
@@ -366,16 +413,40 @@ const goToCurrentWeek = async () => {
   await loadSchedules(currentWeekStart.value);
 };
 
-const nextUpcomingSchedule = computed(() => {
-  const now = Date.now();
-  return groupedSchedules.value.find((schedule) => {
-    return !schedule.isCompleted && new Date(schedule.startTime).getTime() >= now;
-  }) ?? null;
-});
+const toggleScheduleGroupStatus = async (scheduleGroup) => {
+  if (!scheduleGroup || processingGroupKey.value) {
+    return;
+  }
 
-const schedulePosterUrl = computed(() => {
+  const shouldComplete = !scheduleGroup.isCompleted;
+  const targetIds = shouldComplete ? scheduleGroup.pendingScheduleIds : scheduleGroup.completedScheduleIds;
+  if (!targetIds.length) {
+    return;
+  }
+
+  processingGroupKey.value = scheduleGroup.groupKey;
+  try {
+    for (const scheduleId of targetIds) {
+      if (shouldComplete) {
+        await api.completeSchedule(scheduleId);
+      } else {
+        await api.undoCompleteSchedule(scheduleId);
+      }
+    }
+
+    updateScheduleStatusesLocally(targetIds, shouldComplete ? 'COMPLETED' : 'PLANNED');
+    ElMessage.success(shouldComplete ? '已销课' : '已恢复为待上课');
+  } catch (requestError) {
+    ElMessage.error(normalizeError(requestError, shouldComplete ? '销课失败' : '恢复待上课失败'));
+    await loadSchedules(currentWeekStart.value);
+  } finally {
+    processingGroupKey.value = '';
+  }
+};
+
+const getPosterLayoutMetrics = () => {
   if (!weekDays.value.length) {
-    return '';
+    return null;
   }
 
   const width = 1600;
@@ -421,6 +492,153 @@ const schedulePosterUrl = computed(() => {
   const timelineLabelX = outerPadding + 12;
   const timelineLabelWidth = leftRail - 42;
   const timelineLabelHeight = 28;
+
+  return {
+    width,
+    height,
+    outerPadding,
+    leftRail,
+    columnGap,
+    columnWidth,
+    headerHeight,
+    dayHeaderHeight,
+    bottomPadding,
+    visibleStart,
+    visibleEnd,
+    hourRows,
+    hourHeight,
+    gridTop,
+    gridHeight,
+    gridBottom,
+    gridLeft,
+    dayHeaderTop,
+    dayIndexMap,
+    gridAreaWidth,
+    titlePanelWidth,
+    titlePanelHeight,
+    titleTextX,
+    boardPanelY,
+    boardPanelHeight,
+    timelineAxisX,
+    timelineLabelX,
+    timelineLabelWidth,
+    timelineLabelHeight
+  };
+};
+
+const getStatusPalette = (schedule) => {
+  if (schedule.isCompleted) {
+    return {
+      fill: '#f0fdf4',
+      stroke: '#86efac',
+      accent: '#22c55e',
+      badge: '#dcfce7',
+      badgeText: '#15803d'
+    };
+  }
+  if (schedule.isPartial) {
+    return {
+      fill: '#eff6ff',
+      stroke: '#93c5fd',
+      accent: '#3b82f6',
+      badge: '#dbeafe',
+      badgeText: '#1d4ed8'
+    };
+  }
+  return {
+    fill: '#fff7ed',
+    stroke: '#fdba74',
+    accent: '#f59e0b',
+    badge: '#ffedd5',
+    badgeText: '#c2410c'
+  };
+};
+
+const getScheduleCardLayout = (schedule, layout) => {
+  const dayIndex = layout.dayIndexMap.get(schedule.dateKey);
+  if (dayIndex === undefined) {
+    return null;
+  }
+
+  const x = layout.gridLeft + dayIndex * (layout.columnWidth + layout.columnGap) + 10;
+  const y = layout.gridTop + ((getMinutesOfDay(schedule.startTime) - layout.visibleStart) / 60) * layout.hourHeight + 8;
+  const widthValue = layout.columnWidth - 20;
+  const heightValue = Math.max(
+    76,
+    ((getMinutesOfDay(schedule.endTime) - getMinutesOfDay(schedule.startTime)) / 60) * layout.hourHeight - 12
+  );
+
+  return {
+    x,
+    y,
+    width: widthValue,
+    height: heightValue,
+    compact: heightValue < 102
+  };
+};
+
+const scheduleActionOverlays = computed(() => {
+  const layout = getPosterLayoutMetrics();
+  if (!layout) {
+    return [];
+  }
+
+  return groupedSchedules.value
+    .map((schedule) => {
+      const cardLayout = getScheduleCardLayout(schedule, layout);
+      if (!cardLayout) {
+        return null;
+      }
+
+      return {
+        ...schedule,
+        label: getScheduleActionLabel(schedule),
+        ariaLabel: getScheduleActionAriaLabel(schedule),
+        state: schedule.isCompleted ? 'completed' : schedule.isPartial ? 'partial' : 'pending',
+        style: {
+          top: `${(
+            cardLayout.y
+            + (cardLayout.compact ? cardLayout.height / 2 : cardLayout.height - 26)
+          ) / layout.height * 100}%`,
+          left: `${(cardLayout.x + 14) / layout.width * 100}%`
+        }
+      };
+    })
+    .filter(Boolean);
+});
+
+const schedulePosterUrl = computed(() => {
+  const layout = getPosterLayoutMetrics();
+  if (!layout) {
+    return '';
+  }
+  const {
+    width,
+    height,
+    outerPadding,
+    leftRail,
+    columnGap,
+    columnWidth,
+    dayHeaderHeight,
+    visibleStart,
+    hourRows,
+    hourHeight,
+    gridTop,
+    gridHeight,
+    gridBottom,
+    gridLeft,
+    dayHeaderTop,
+    gridAreaWidth,
+    titlePanelWidth,
+    titlePanelHeight,
+    titleTextX,
+    boardPanelY,
+    boardPanelHeight,
+    timelineAxisX,
+    timelineLabelX,
+    timelineLabelWidth,
+    timelineLabelHeight
+  } = layout;
 
   const dayHeaders = weekDays.value.map((day, index) => {
     const x = gridLeft + index * (columnWidth + columnGap);
@@ -470,54 +688,20 @@ const schedulePosterUrl = computed(() => {
     </g>
   `;
 
-  const statusPalette = (schedule) => {
-    if (schedule.isCompleted) {
-      return {
-        fill: '#f0fdf4',
-        stroke: '#86efac',
-        accent: '#22c55e',
-        badge: '#dcfce7',
-        badgeText: '#15803d'
-      };
-    }
-    if (schedule.isPartial) {
-      return {
-        fill: '#eff6ff',
-        stroke: '#93c5fd',
-        accent: '#3b82f6',
-        badge: '#dbeafe',
-        badgeText: '#1d4ed8'
-      };
-    }
-    return {
-      fill: '#fff7ed',
-      stroke: '#fdba74',
-      accent: '#f59e0b',
-      badge: '#ffedd5',
-      badgeText: '#c2410c'
-    };
-  };
-
   const scheduleCards = groupedSchedules.value.map((schedule) => {
-    const dayIndex = dayIndexMap.get(schedule.dateKey);
-    if (dayIndex === undefined) {
+    const cardLayout = getScheduleCardLayout(schedule, layout);
+    if (!cardLayout) {
       return '';
     }
 
-    const palette = statusPalette(schedule);
-    const x = gridLeft + dayIndex * (columnWidth + columnGap) + 10;
-    const y = gridTop + ((getMinutesOfDay(schedule.startTime) - visibleStart) / 60) * hourHeight + 8;
-    const widthValue = columnWidth - 20;
-    const heightValue = Math.max(76, ((getMinutesOfDay(schedule.endTime) - getMinutesOfDay(schedule.startTime)) / 60) * hourHeight - 12);
+    const palette = getStatusPalette(schedule);
+    const x = cardLayout.x;
+    const y = cardLayout.y;
+    const widthValue = cardLayout.width;
+    const heightValue = cardLayout.height;
     const accentInset = 10;
     const accentLineX = x + 3;
-    const compact = heightValue < 102;
-    const footerText = schedule.isCompleted
-      ? '已销课'
-      : schedule.isPartial
-        ? `已销 ${schedule.completedCount}/${schedule.scheduleIds.length}`
-        : `${schedule.sessionNote} · ${schedule.participantLabel}`;
-
+    const compact = cardLayout.compact;
     return `
       <g filter="url(#cardShadow)">
         <rect x="${x}" y="${y}" width="${widthValue}" height="${heightValue}" rx="20" fill="${palette.fill}" stroke="${palette.stroke}" />
@@ -526,8 +710,6 @@ const schedulePosterUrl = computed(() => {
         <text x="${x + 51}" y="${y + 30}" text-anchor="middle" font-size="11" font-weight="600" fill="${palette.badgeText}">${escapeSvgText(schedule.timeRange)}</text>
         <text x="${x + 14}" y="${y + 58}" font-size="17" font-weight="700" fill="#0f172a">${escapeSvgText(truncateText(schedule.subject, 14))}</text>
         ${compact ? '' : `<text x="${x + 14}" y="${y + 80}" font-size="12" fill="#475569">${escapeSvgText(truncateText(schedule.studentNamesLabel, 24))}</text>`}
-        ${compact ? '' : `<text x="${x + 14}" y="${y + 100}" font-size="11" fill="#64748b">${escapeSvgText(schedule.participantLabel)}</text>`}
-        <text x="${x + 14}" y="${y + heightValue - 18}" font-size="11" fill="${palette.badgeText}">${escapeSvgText(truncateText(footerText, 18))}</text>
       </g>
     `;
   }).join('');
@@ -771,6 +953,67 @@ onMounted(async () => {
   font-weight: 700;
 }
 
+.schedule-poster-action-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.schedule-session-action {
+  position: absolute;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  min-height: clamp(24px, 1.8vw, 28px);
+  padding: 0 clamp(8px, 0.9vw, 11px);
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: 999px;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.11);
+  font-size: clamp(10px, 0.76vw, 11px);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease,
+    color 180ms ease;
+}
+
+.schedule-session-action:hover {
+  transform: translateY(calc(-50% - 1px));
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.14);
+}
+
+.schedule-session-action:disabled {
+  cursor: progress;
+  opacity: 0.82;
+}
+
+.schedule-session-action[data-state='pending'] {
+  background: rgba(255, 247, 237, 0.94);
+  border-color: rgba(253, 186, 116, 0.96);
+  color: #c2410c;
+}
+
+.schedule-session-action[data-state='partial'] {
+  background: rgba(239, 246, 255, 0.94);
+  border-color: rgba(147, 197, 253, 0.96);
+  color: #1d4ed8;
+}
+
+.schedule-session-action[data-state='completed'] {
+  background: rgba(240, 253, 244, 0.94);
+  border-color: rgba(134, 239, 172, 0.96);
+  color: #15803d;
+}
+
 .schedule-poster-image {
   display: block;
   width: 100%;
@@ -801,6 +1044,12 @@ onMounted(async () => {
     right: 20px;
     left: 20px;
     justify-content: flex-end;
+  }
+
+  .schedule-session-action {
+    min-height: 24px;
+    padding: 0 8px;
+    box-shadow: 0 8px 14px rgba(15, 23, 42, 0.14);
   }
 
   .schedule-poster-image {
