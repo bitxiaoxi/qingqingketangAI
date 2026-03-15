@@ -359,7 +359,7 @@ const submitStudentForm = async () => {
 
 const goToSchedule = (student) => {
   router.push({
-    path: '/courses',
+    path: '/planner',
     query: {
       action: 'create',
       studentId: student.id

@@ -1,329 +1,33 @@
 <template>
   <section class="page-stack">
-    <PageHeader
-      eyebrow="Schedule"
-      title="课程管理"
-      description="把新建排课、周课表查看和 AI 排课集中在一个清晰的排课工作台。"
-    >
-      <template #actions>
-        <div class="page-actions">
-          <el-button type="primary" @click="openCreateDialog()">新建排课</el-button>
-          <el-button @click="jumpToCurrentWeek">查看周课表</el-button>
-          <el-button type="primary" plain @click="openAssistantDrawer">AI 排课</el-button>
-        </div>
-      </template>
-    </PageHeader>
-
-    <el-card shadow="never" class="planner-hero">
-      <div class="planner-hero__body">
-        <div class="planner-hero__intro">
-          <span class="planner-hero__eyebrow">Schedule Studio</span>
-          <h3>专业的排课工作台</h3>
-          <p>
-            以周视图为核心，统一处理正式课排期、批量生成课表、销课状态和 AI 排课建议。
-          </p>
-          <div class="planner-hero__chips">
-            <span class="planner-chip">{{ currentWeekLabel }}</span>
-            <span class="planner-chip">{{ filteredSchedules.length }} 节课程</span>
-            <span class="planner-chip">AI 排课已接入</span>
-          </div>
-        </div>
-
-        <div class="planner-hero__stats">
-          <article v-for="item in overviewStats" :key="item.label" class="planner-stat">
-            <span>{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-            <small>{{ item.helper }}</small>
-          </article>
+    <el-card shadow="never" class="schedule-board-card">
+      <div v-if="loading" class="page-state">课表加载中…</div>
+      <el-alert v-else-if="error" :title="error" type="error" show-icon :closable="false" />
+      <div v-else class="schedule-poster-section">
+        <div class="schedule-poster-frame">
+          <el-image
+            v-if="schedulePosterUrl"
+            :src="schedulePosterUrl"
+            :preview-src-list="[schedulePosterUrl]"
+            class="schedule-poster-image"
+            fit="contain"
+            preview-teleported
+            hide-on-click-modal
+          />
+          <el-empty v-else description="本周暂无排课安排" :image-size="72" />
         </div>
       </div>
     </el-card>
-
-    <el-card shadow="never" class="schedule-control-card">
-      <div class="schedule-control">
-        <div class="schedule-control__summary">
-          <span class="schedule-control__eyebrow">Week Calendar</span>
-          <strong>{{ currentWeekLabel }}</strong>
-          <p>{{ filterSummary }}</p>
-        </div>
-
-        <div class="schedule-control__tools">
-          <el-select
-            v-model="filters.studentId"
-            filterable
-            clearable
-            placeholder="按学生筛选"
-            class="toolbar-select"
-          >
-            <el-option
-              v-for="student in students"
-              :key="student.id"
-              :label="`${student.name} · ${student.grade}`"
-              :value="student.id"
-            />
-          </el-select>
-
-          <div class="schedule-control__nav">
-            <el-button @click="shiftWeek(-1)">上一周</el-button>
-            <el-button @click="jumpToCurrentWeek">回到本周</el-button>
-            <el-button @click="shiftWeek(1)">下一周</el-button>
-          </div>
-        </div>
-      </div>
-
-      <div class="schedule-legend">
-        <span><i class="schedule-legend__dot schedule-legend__dot--planned"></i>待上课</span>
-        <span><i class="schedule-legend__dot schedule-legend__dot--completed"></i>已销课</span>
-      </div>
-    </el-card>
-
-    <div v-if="loading" class="page-state">课表加载中…</div>
-    <el-alert v-else-if="error" :title="error" type="error" show-icon :closable="false" />
-    <div v-else class="week-board">
-      <el-card v-for="day in weekDays" :key="day.dateKey" shadow="never" class="day-card">
-        <template #header>
-          <div class="day-card__header">
-            <div>
-              <span class="day-card__weekday">{{ day.weekday }}</span>
-              <strong>{{ day.dateLabel }}</strong>
-            </div>
-            <span class="day-card__count">{{ day.items.length }} 节</span>
-          </div>
-        </template>
-
-        <div v-if="day.items.length" class="schedule-list">
-          <article
-            v-for="slot in day.items"
-            :key="slot.id"
-            class="schedule-item"
-            :data-completed="slot.isCompleted"
-          >
-            <div class="schedule-item__meta">
-              <span class="schedule-item__time">{{ slot.timeRange }}</span>
-              <el-tag size="small" :type="slot.tagType" effect="plain">{{ slot.statusLabel }}</el-tag>
-            </div>
-            <strong>{{ slot.studentName }}</strong>
-            <p>{{ slot.subject }}</p>
-            <div class="schedule-item__footer">
-              <span>{{ slot.isCompleted ? '已完成销课' : '待课前确认' }}</span>
-              <el-button
-                link
-                type="primary"
-                :loading="processingId === slot.scheduleId"
-                @click="toggleScheduleStatus(slot)"
-              >
-                {{ slot.isCompleted ? '撤销销课' : '销课' }}
-              </el-button>
-            </div>
-          </article>
-        </div>
-        <div v-else class="day-card__empty">
-          <span>本日空闲</span>
-          <small>暂无排课安排</small>
-        </div>
-      </el-card>
-    </div>
-
-    <el-dialog
-      v-model="createDialogVisible"
-      title="新建排课"
-      width="760px"
-      destroy-on-close
-      class="schedule-dialog"
-    >
-      <div class="dialog-intro">
-        <span class="dialog-intro__eyebrow">Create Schedule</span>
-        <p>填写学生、上课频率、日期与时间后，系统会按剩余课时自动向后排满课表。</p>
-      </div>
-
-      <el-form label-position="top" class="dialog-form">
-        <section class="dialog-block">
-          <div class="dialog-block__head">
-            <h4>学生与周期</h4>
-            <small>先确认学生，再设置排课从哪一天开始生效。</small>
-          </div>
-
-          <el-form-item label="学生" required>
-            <el-select v-model="createForm.studentId" filterable placeholder="请选择学生">
-              <el-option
-                v-for="student in students"
-                :key="student.id"
-                :label="`${student.name} · ${student.grade}`"
-                :value="student.id"
-              />
-            </el-select>
-          </el-form-item>
-
-          <div class="dialog-grid">
-            <el-form-item label="每周上课次数" required>
-              <el-select v-model="createForm.weeklySessions">
-                <el-option
-                  v-for="option in frequencyOptions"
-                  :key="option.value"
-                  :label="option.label"
-                  :value="option.value"
-                />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item label="开始日期" required>
-              <el-date-picker
-                v-model="createForm.startDate"
-                type="date"
-                format="YYYY-MM-DD"
-                value-format="YYYY-MM-DD"
-                placeholder="选择开始日期"
-              />
-            </el-form-item>
-          </div>
-        </section>
-
-        <section class="dialog-block">
-          <div class="dialog-block__head">
-            <h4>每周上课日</h4>
-            <small>{{ weekdaySummary }}</small>
-          </div>
-
-          <div class="weekday-chip-grid">
-            <button
-              v-for="option in weekdayOptions"
-              :key="option.value"
-              type="button"
-              class="weekday-chip"
-              :data-active="createForm.weekdays.includes(option.value)"
-              :disabled="!createForm.weekdays.includes(option.value) && createForm.weekdays.length >= createForm.weeklySessions"
-              @click="toggleWeekday(option.value)"
-            >
-              {{ option.label }}
-            </button>
-          </div>
-        </section>
-
-        <section class="dialog-block">
-          <div class="dialog-block__head">
-            <h4>上课时间</h4>
-            <small>设置单节课的标准时间段。</small>
-          </div>
-
-          <div class="dialog-grid">
-            <el-form-item label="开始时间" required>
-              <el-time-picker
-                v-model="createForm.startTime"
-                value-format="HH:mm"
-                format="HH:mm"
-                placeholder="开始时间"
-              />
-            </el-form-item>
-
-            <el-form-item label="结束时间" required>
-              <el-time-picker
-                v-model="createForm.endTime"
-                value-format="HH:mm"
-                format="HH:mm"
-                placeholder="结束时间"
-              />
-            </el-form-item>
-          </div>
-        </section>
-
-        <div class="schedule-preview">
-          <span class="schedule-preview__eyebrow">Schedule Preview</span>
-          <strong>{{ createPreview }}</strong>
-          <small v-if="selectedCreateStudent">
-            当前学生剩余 {{ selectedCreateStudent.remainingLessons ?? 0 }} 节课，系统会基于这个课时数自动排满。
-          </small>
-        </div>
-      </el-form>
-
-      <template #footer>
-        <div class="dialog-footer">
-          <el-button @click="createDialogVisible = false">取消</el-button>
-          <el-button type="primary" :loading="creating" @click="submitCreateForm">生成课表</el-button>
-        </div>
-      </template>
-    </el-dialog>
-
-    <el-drawer
-      v-model="assistantDrawerVisible"
-      size="560px"
-      title="AI 排课"
-      destroy-on-close
-      class="assistant-drawer"
-    >
-      <div class="assistant-stack">
-        <div class="assistant-guide">
-          <span class="assistant-guide__eyebrow">AI Assistant</span>
-          <h4>自然语言生成排课草案</h4>
-          <p>直接描述学生、每周上课日、开始日期和时间段，系统会解析并尝试自动排课。</p>
-        </div>
-
-        <div class="assistant-examples">
-          <button
-            v-for="example in scheduleAssistantExamples"
-            :key="example"
-            type="button"
-            class="assistant-example"
-            @click="assistantInput = example"
-          >
-            {{ example }}
-          </button>
-        </div>
-
-        <div ref="assistantThreadRef" class="assistant-thread">
-          <article
-            v-for="message in assistantMessages"
-            :key="message.id"
-            class="assistant-message"
-            :data-role="message.role"
-          >
-            <div class="assistant-message__meta">
-              <span>{{ message.role === 'assistant' ? '排课助手' : '你' }}</span>
-              <small v-if="message.meta">{{ message.meta }}</small>
-            </div>
-            <div class="assistant-message__bubble">
-              <p>{{ message.content }}</p>
-              <ul v-if="message.warnings?.length">
-                <li v-for="warning in message.warnings" :key="`${message.id}-${warning}`">{{ warning }}</li>
-              </ul>
-            </div>
-          </article>
-        </div>
-
-        <el-input
-          v-model="assistantInput"
-          type="textarea"
-          :rows="4"
-          :placeholder="assistantPlaceholder"
-        />
-
-        <div class="assistant-actions">
-          <span class="field-hint">
-            {{ assistantPendingFields.length ? `当前待补：${assistantPendingFields.join('、')}` : '支持多轮补充，系统会记住上下文。' }}
-          </span>
-          <div class="assistant-actions__buttons">
-            <el-button @click="resetAssistantConversation">重置</el-button>
-            <el-button type="primary" :loading="assistantSubmitting" @click="submitAssistant">
-              发送并排课
-            </el-button>
-          </div>
-        </div>
-      </div>
-    </el-drawer>
   </section>
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
-import { ElMessage } from 'element-plus';
-import PageHeader from '../components/common/PageHeader.vue';
-import { frequencyOptions, scheduleAssistantExamples, weekdayOptions } from '../constants/options';
+import { computed, onMounted, ref } from 'vue';
 import { api } from '../services/api';
 import {
-  buildWeekdaySummary,
+  formatClock,
   formatDate,
   formatDateParam,
-  formatParsedIntentSummary,
   formatTimeRange,
   formatWeekRange,
   formatWeekday,
@@ -332,83 +36,40 @@ import {
   normalizeError
 } from '../utils/format';
 
-const route = useRoute();
-
 const loading = ref(false);
 const error = ref('');
-const creating = ref(false);
-const processingId = ref(null);
-const students = ref([]);
 const schedules = ref([]);
-const filters = reactive({
-  studentId: route.query.studentId ? Number(route.query.studentId) : null
-});
 const currentWeekStart = ref(getWeekStart(new Date()));
-const createDialogVisible = ref(false);
-const assistantDrawerVisible = ref(false);
-const createForm = reactive({
-  studentId: route.query.studentId ? Number(route.query.studentId) : null,
-  weeklySessions: 1,
-  weekdays: [weekdayOptions[0].value],
-  startDate: formatDateParam(new Date()),
-  startTime: '19:00',
-  endTime: '20:30'
-});
 
-const assistantThreadRef = ref(null);
-const assistantMessages = ref([]);
-const assistantInput = ref('');
-const assistantPendingFields = ref([]);
-const assistantSubmitting = ref(false);
-let assistantMessageId = 0;
-
-const createAssistantMessage = (role, content, options = {}) => {
-  assistantMessageId += 1;
-  return {
-    id: assistantMessageId,
-    role,
-    content,
-    meta: options.meta ?? '',
-    warnings: options.warnings ?? []
-  };
+const escapeSvgText = (value) => {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 };
 
-const resetAssistantConversation = async () => {
-  assistantMessages.value = [
-    createAssistantMessage(
-      'assistant',
-      '告诉我学生姓名、每周上课日、时间段和开始日期。你可以分多轮补充，我会记住已经识别到的信息。',
-      { meta: 'AI 对话排课' }
-    )
-  ];
-  assistantInput.value = '';
-  assistantPendingFields.value = [];
-  await scrollAssistantThread();
-};
-
-const scrollAssistantThread = async () => {
-  await nextTick();
-  const target = assistantThreadRef.value;
-  if (target) {
-    target.scrollTop = target.scrollHeight;
+const truncateText = (value, maxLength) => {
+  const text = String(value ?? '');
+  if (text.length <= maxLength) {
+    return text;
   }
+  return `${text.slice(0, Math.max(0, maxLength - 1))}…`;
 };
 
-const loadPageData = async () => {
-  loading.value = true;
-  error.value = '';
-  try {
-    const [studentsData, schedulesData] = await Promise.all([
-      api.listStudents(),
-      api.listWeekSchedules(formatDateParam(currentWeekStart.value))
-    ]);
-    students.value = studentsData ?? [];
-    schedules.value = schedulesData ?? [];
-  } catch (requestError) {
-    error.value = normalizeError(requestError, '课表加载失败');
-  } finally {
-    loading.value = false;
-  }
+const getMinutesOfDay = (value) => {
+  const date = new Date(value);
+  return date.getHours() * 60 + date.getMinutes();
+};
+
+const formatHourMark = (minutes) => {
+  const hours = Math.floor(minutes / 60);
+  return `${String(hours).padStart(2, '0')}:00`;
+};
+
+const createSvgImageUrl = (svg) => {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 };
 
 const loadSchedules = async () => {
@@ -423,880 +84,520 @@ const loadSchedules = async () => {
   }
 };
 
-const filteredSchedules = computed(() => {
-  return schedules.value
-    .filter((schedule) => !filters.studentId || schedule.studentId === filters.studentId)
+const normalizedSchedules = computed(() => {
+  return (schedules.value ?? [])
     .slice()
-    .sort((left, right) => new Date(left.startTime) - new Date(right.startTime));
+    .sort((left, right) => new Date(left.startTime) - new Date(right.startTime))
+    .map((schedule) => {
+      const isCompleted = String(schedule.status ?? '').toUpperCase() === 'COMPLETED';
+      return {
+        ...schedule,
+        scheduleId: schedule.id,
+        studentName: schedule.studentName ?? '未命名',
+        subject: schedule.subject ?? '正式课',
+        timeRange: formatTimeRange(schedule.startTime, schedule.endTime),
+        isCompleted
+      };
+    });
 });
 
-const normalizedSchedules = computed(() => {
-  return filteredSchedules.value.map((schedule) => {
-    const isCompleted = String(schedule.status ?? '').toUpperCase() === 'COMPLETED';
+const groupedSchedules = computed(() => {
+  const groupMap = new Map();
+
+  normalizedSchedules.value.forEach((schedule) => {
+    const dateKey = formatDateParam(schedule.startTime);
+    const groupKey = [dateKey, schedule.startTime, schedule.endTime, schedule.subject].join('|');
+    const existingGroup = groupMap.get(groupKey);
+
+    if (existingGroup) {
+      existingGroup.scheduleIds.push(schedule.scheduleId);
+      existingGroup.studentIds.add(schedule.studentId ?? schedule.scheduleId);
+      existingGroup.studentNames.add(schedule.studentName);
+      if (schedule.isCompleted) {
+        existingGroup.completedScheduleIds.push(schedule.scheduleId);
+      } else {
+        existingGroup.pendingScheduleIds.push(schedule.scheduleId);
+      }
+      return;
+    }
+
+    groupMap.set(groupKey, {
+      groupKey,
+      dateKey,
+      startTime: schedule.startTime,
+      endTime: schedule.endTime,
+      sortTime: new Date(schedule.startTime).getTime(),
+      timeRange: schedule.timeRange,
+      subject: schedule.subject,
+      scheduleIds: [schedule.scheduleId],
+      completedScheduleIds: schedule.isCompleted ? [schedule.scheduleId] : [],
+      pendingScheduleIds: schedule.isCompleted ? [] : [schedule.scheduleId],
+      studentIds: new Set([schedule.studentId ?? schedule.scheduleId]),
+      studentNames: new Set([schedule.studentName])
+    });
+  });
+
+  return Array.from(groupMap.values())
+    .map((group) => {
+      const studentNames = Array.from(group.studentNames);
+      const participantCount = group.studentIds.size || group.scheduleIds.length;
+      const completedCount = group.completedScheduleIds.length;
+      const pendingCount = group.pendingScheduleIds.length;
+      const isCompleted = completedCount === group.scheduleIds.length;
+      const isPartial = completedCount > 0 && pendingCount > 0;
+
+      return {
+        groupKey: group.groupKey,
+        dateKey: group.dateKey,
+        startTime: group.startTime,
+        endTime: group.endTime,
+        sortTime: group.sortTime,
+        timeRange: group.timeRange,
+        subject: group.subject,
+        scheduleIds: group.scheduleIds,
+        participantCount,
+        participantLabel: `共 ${participantCount} 位学员`,
+        studentNamesLabel: studentNames.join('、'),
+        completedCount,
+        isCompleted,
+        isPartial,
+        sessionNote: participantCount > 1 ? '小组课' : '单人课'
+      };
+    })
+    .sort((left, right) => left.sortTime - right.sortTime);
+});
+
+const weekDays = computed(() => {
+  const todayKey = formatDateParam(new Date());
+  return getWeekDays(currentWeekStart.value).map((day) => {
+    const dateKey = formatDateParam(day);
+    const weekday = day.getDay();
+    const items = groupedSchedules.value.filter((schedule) => schedule.dateKey === dateKey);
     return {
-      ...schedule,
-      scheduleId: schedule.id,
-      studentName: schedule.studentName ?? '未命名',
-      subject: schedule.subject ?? '正式课',
-      timeRange: formatTimeRange(schedule.startTime, schedule.endTime),
-      isCompleted,
-      statusLabel: isCompleted ? '已销课' : '待上课',
-      tagType: isCompleted ? 'success' : 'warning'
+      dateKey,
+      weekday: formatWeekday(day),
+      dateLabel: formatDate(day),
+      dateNumber: `${day.getDate()}`.padStart(2, '0'),
+      monthLabel: `${day.getMonth() + 1}月`,
+      isToday: dateKey === todayKey,
+      isWeekend: weekday === 0 || weekday === 6,
+      items
     };
   });
 });
 
 const currentWeekLabel = computed(() => formatWeekRange(currentWeekStart.value));
 
-const weekDays = computed(() => {
-  return getWeekDays(currentWeekStart.value).map((day) => {
-    const dateKey = formatDateParam(day);
-    return {
-      dateKey,
-      weekday: formatWeekday(day),
-      dateLabel: formatDate(day),
-      items: normalizedSchedules.value.filter((schedule) => formatDateParam(schedule.startTime) === dateKey)
-    };
-  });
+const nextUpcomingSchedule = computed(() => {
+  const now = Date.now();
+  return groupedSchedules.value.find((schedule) => {
+    return !schedule.isCompleted && new Date(schedule.startTime).getTime() >= now;
+  }) ?? null;
 });
 
-const completedCount = computed(() => normalizedSchedules.value.filter((item) => item.isCompleted).length);
-const pendingCount = computed(() => normalizedSchedules.value.filter((item) => !item.isCompleted).length);
-const weeklyStudentCount = computed(() => new Set(filteredSchedules.value.map((item) => item.studentId)).size);
-
-const overviewStats = computed(() => [
-  {
-    label: '本周课程数',
-    value: `${filteredSchedules.value.length}`,
-    helper: '当前周视图内的全部课程'
-  },
-  {
-    label: '待上课',
-    value: `${pendingCount.value}`,
-    helper: '还未销课的课程数量'
-  },
-  {
-    label: '已销课',
-    value: `${completedCount.value}`,
-    helper: '本周已经确认完成'
-  },
-  {
-    label: '涉及学生',
-    value: `${weeklyStudentCount.value}`,
-    helper: '本周参与排课的学生数'
+const scheduleHeroCaption = computed(() => {
+  if (!groupedSchedules.value.length) {
+    return '本周还没有课程安排。';
   }
-]);
 
-const filterSummary = computed(() => {
-  const student = students.value.find((item) => item.id === filters.studentId);
-  if (student) {
-    return `当前筛选：${student.name} · ${student.grade}，共 ${filteredSchedules.value.length} 节课。`;
+  if (nextUpcomingSchedule.value) {
+    return `下一节课在 ${formatWeekday(nextUpcomingSchedule.value.startTime)} ${formatClock(nextUpcomingSchedule.value.startTime)}，${nextUpcomingSchedule.value.subject}，${nextUpcomingSchedule.value.participantLabel}。`;
   }
-  return `当前查看本周全部课表，共 ${filteredSchedules.value.length} 节课，${weeklyStudentCount.value} 位学生参与排课。`;
+
+  return `本周共有 ${groupedSchedules.value.length} 节课程安排。`;
 });
 
-const weekdaySummary = computed(() => buildWeekdaySummary(createForm.weekdays, createForm.weeklySessions, weekdayOptions));
-
-const selectedCreateStudent = computed(() => {
-  return students.value.find((student) => student.id === createForm.studentId) ?? null;
-});
-
-const createPreview = computed(() => {
-  const studentLabel = selectedCreateStudent.value
-    ? `${selectedCreateStudent.value.name} · ${selectedCreateStudent.value.grade}`
-    : '未选择学生';
-  const weekdays = weekdayOptions
-    .filter((option) => createForm.weekdays.includes(option.value))
-    .map((option) => option.label)
-    .join('、') || '未选择上课日';
-  const timeRange = createForm.startTime && createForm.endTime
-    ? `${createForm.startTime}-${createForm.endTime}`
-    : '未设置时间';
-  const startDate = createForm.startDate || '未设置开始日期';
-  return `${studentLabel} · ${weekdays} · ${timeRange} · 从 ${startDate} 开始`;
-});
-
-const assistantPlaceholder = computed(() => {
-  if (assistantPendingFields.value.includes('学生姓名')) {
-    return '直接回复学生姓名，例如：李晓明';
+const schedulePosterUrl = computed(() => {
+  if (!weekDays.value.length) {
+    return '';
   }
-  if (assistantPendingFields.value.includes('每周上课日')) {
-    return '直接回复每周上课日，例如：周二、周四';
-  }
-  if (assistantPendingFields.value.includes('开始日期')) {
-    return '直接回复开始日期，例如：从 2026-03-16 开始';
-  }
-  if (assistantPendingFields.value.includes('上课时间')) {
-    return '直接回复上课时间，例如：19:00-20:30';
-  }
-  return '例如：李晓明每周二、周四 19:00-20:30，从下周一开始上课';
-});
 
-const resetCreateForm = (studentId = null) => {
-  createForm.studentId = studentId;
-  createForm.weeklySessions = 1;
-  createForm.weekdays = [weekdayOptions[0].value];
-  createForm.startDate = formatDateParam(new Date());
-  createForm.startTime = '19:00';
-  createForm.endTime = '20:30';
-};
+  const width = 1600;
+  const outerPadding = 36;
+  const leftRail = 122;
+  const columnGap = 12;
+  const columnWidth = Math.floor((width - outerPadding * 2 - leftRail - columnGap * 6) / 7);
+  const headerHeight = 162;
+  const dayHeaderHeight = 78;
+  const bottomPadding = 38;
+  const defaultStart = 8 * 60;
+  const defaultEnd = 22 * 60;
 
-const openCreateDialog = (studentId = route.query.studentId ? Number(route.query.studentId) : null) => {
-  resetCreateForm(studentId);
-  createDialogVisible.value = true;
-};
+  let visibleStart = defaultStart;
+  let visibleEnd = defaultEnd;
 
-const toggleWeekday = (weekday) => {
-  const selected = [...createForm.weekdays];
-  if (selected.includes(weekday)) {
-    if (selected.length === 1) {
-      return;
+  if (groupedSchedules.value.length) {
+    const minStart = Math.min(...groupedSchedules.value.map((schedule) => getMinutesOfDay(schedule.startTime)));
+    const maxEnd = Math.max(...groupedSchedules.value.map((schedule) => getMinutesOfDay(schedule.endTime)));
+    visibleStart = Math.max(7 * 60, Math.floor(minStart / 60) * 60 - 60);
+    visibleEnd = Math.min(23 * 60, Math.ceil(maxEnd / 60) * 60 + 60);
+    if (visibleEnd - visibleStart < 8 * 60) {
+      visibleEnd = Math.min(23 * 60, visibleStart + 8 * 60);
     }
-    createForm.weekdays = selected.filter((item) => item !== weekday).sort((left, right) => left - right);
-    return;
-  }
-  if (selected.length >= createForm.weeklySessions) {
-    return;
-  }
-  createForm.weekdays = [...selected, weekday].sort((left, right) => left - right);
-};
-
-const submitCreateForm = async () => {
-  if (!createForm.studentId || !createForm.startDate || !createForm.startTime || !createForm.endTime) {
-    ElMessage.error('请完整填写排课信息');
-    return;
-  }
-  if (createForm.weekdays.length !== createForm.weeklySessions) {
-    ElMessage.error(`每周 ${createForm.weeklySessions} 次课，请选择 ${createForm.weeklySessions} 个上课日`);
-    return;
   }
 
-  creating.value = true;
-  try {
-    const generated = await api.generateSchedules(createForm.studentId, {
-      weekdays: [...createForm.weekdays].sort((left, right) => left - right),
-      startDate: createForm.startDate,
-      startTime: createForm.startTime,
-      endTime: createForm.endTime
-    });
-    const firstSchedule = Array.isArray(generated) ? generated[0] : null;
-    if (firstSchedule?.startTime) {
-      currentWeekStart.value = getWeekStart(firstSchedule.startTime);
-    }
-    createDialogVisible.value = false;
-    ElMessage.success(`已生成 ${Array.isArray(generated) ? generated.length : 0} 节课`);
-    await loadSchedules();
-  } catch (requestError) {
-    ElMessage.error(normalizeError(requestError, '排课失败'));
-  } finally {
-    creating.value = false;
-  }
-};
+  const hourRows = Math.max(1, Math.ceil((visibleEnd - visibleStart) / 60));
+  const hourHeight = 84;
+  const gridTop = outerPadding + headerHeight + dayHeaderHeight;
+  const gridHeight = hourRows * hourHeight;
+  const height = gridTop + gridHeight + bottomPadding;
+  const gridLeft = outerPadding + leftRail;
+  const dayHeaderTop = outerPadding + headerHeight;
+  const dayIndexMap = new Map(weekDays.value.map((day, index) => [day.dateKey, index]));
+  const gridAreaWidth = 7 * columnWidth + 6 * columnGap;
+  const titlePanelWidth = width - outerPadding * 2;
+  const titlePanelHeight = headerHeight - 24;
+  const boardPanelY = dayHeaderTop - 16;
+  const boardPanelHeight = gridHeight + dayHeaderHeight + 8;
+  const timelineAxisX = gridLeft - 24;
+  const timelineLabelX = outerPadding + 12;
+  const timelineLabelWidth = leftRail - 42;
+  const timelineLabelHeight = 28;
 
-const toggleScheduleStatus = async (schedule) => {
-  if (!schedule.scheduleId) {
-    return;
-  }
-  processingId.value = schedule.scheduleId;
-  try {
+  const dayHeaders = weekDays.value.map((day, index) => {
+    const x = gridLeft + index * (columnWidth + columnGap);
+    const fill = day.isToday ? '#dbeafe' : day.isWeekend ? '#f0f9ff' : '#ffffff';
+    const stroke = day.isToday ? '#60a5fa' : '#dbe7f3';
+    const subtitle = day.items.length ? `${day.items.length} 节课` : '空档';
+    return `
+      <g>
+        <rect x="${x}" y="${dayHeaderTop}" width="${columnWidth}" height="${dayHeaderHeight - 12}" rx="22" fill="${fill}" stroke="${stroke}" />
+        <text x="${x + 18}" y="${dayHeaderTop + 30}" font-size="16" font-weight="700" fill="#0f172a">${escapeSvgText(day.weekday)}</text>
+        <text x="${x + 18}" y="${dayHeaderTop + 54}" font-size="12" fill="#64748b">${escapeSvgText(`${day.monthLabel} ${day.dateNumber}`)}</text>
+        <text x="${x + columnWidth - 18}" y="${dayHeaderTop + 54}" text-anchor="end" font-size="12" fill="${day.isToday ? '#2563eb' : '#94a3b8'}">${escapeSvgText(day.isToday ? '今天' : subtitle)}</text>
+      </g>
+    `;
+  }).join('');
+
+  const verticalLines = weekDays.value.map((day, index) => {
+    const x = gridLeft + index * (columnWidth + columnGap);
+    return `<rect x="${x}" y="${gridTop}" width="${columnWidth}" height="${gridHeight}" rx="26" fill="${day.isWeekend ? '#f8fcff' : '#ffffff'}" stroke="#e5edf5" />`;
+  }).join('');
+
+  const horizontalGrid = Array.from({ length: hourRows + 1 }, (_, index) => {
+    const y = gridTop + index * hourHeight;
+    return `
+      <line x1="${gridLeft}" y1="${y}" x2="${gridLeft + 7 * columnWidth + 6 * columnGap}" y2="${y}" stroke="#e8eef5" />
+    `;
+  }).join('');
+
+  const timelineRail = `
+    <g>
+      <line x1="${timelineAxisX}" y1="${gridTop + 14}" x2="${timelineAxisX}" y2="${gridTop + gridHeight - 14}" stroke="rgba(148,163,184,0.38)" stroke-width="3" stroke-linecap="round" />
+      ${Array.from({ length: hourRows }, (_, index) => {
+        const y = gridTop + index * hourHeight;
+        const labelY = y + 8;
+        const dotY = labelY + timelineLabelHeight / 2;
+        const tickStart = timelineAxisX + 10;
+        const tickEnd = gridLeft - 8;
+        return `
+          <g>
+            <rect x="${timelineLabelX}" y="${labelY}" width="${timelineLabelWidth}" height="${timelineLabelHeight}" rx="14" fill="rgba(255,255,255,0.92)" stroke="rgba(191,219,254,0.92)" />
+            <text x="${timelineLabelX + timelineLabelWidth / 2}" y="${labelY + 18}" text-anchor="middle" font-size="12" font-weight="700" fill="#475569">${escapeSvgText(formatHourMark(visibleStart + index * 60))}</text>
+            <circle cx="${timelineAxisX}" cy="${dotY}" r="5" fill="#ffffff" stroke="#93c5fd" stroke-width="3" />
+            <line x1="${tickStart}" y1="${dotY}" x2="${tickEnd}" y2="${dotY}" stroke="rgba(191,219,254,0.78)" stroke-width="2" stroke-linecap="round" />
+          </g>
+        `;
+      }).join('')}
+    </g>
+  `;
+
+  const statusPalette = (schedule) => {
     if (schedule.isCompleted) {
-      await api.undoCompleteSchedule(schedule.scheduleId);
-      ElMessage.success('已撤销销课');
-    } else {
-      await api.completeSchedule(schedule.scheduleId);
-      ElMessage.success('销课完成');
+      return {
+        fill: '#f0fdf4',
+        stroke: '#86efac',
+        accent: '#22c55e',
+        badge: '#dcfce7',
+        badgeText: '#15803d'
+      };
     }
-    await loadSchedules();
-  } catch (requestError) {
-    ElMessage.error(normalizeError(requestError, '更新课程状态失败'));
-  } finally {
-    processingId.value = null;
-  }
-};
-
-const shiftWeek = async (offset) => {
-  const nextWeek = new Date(currentWeekStart.value);
-  nextWeek.setDate(nextWeek.getDate() + offset * 7);
-  currentWeekStart.value = getWeekStart(nextWeek);
-  await loadSchedules();
-};
-
-const jumpToCurrentWeek = async () => {
-  currentWeekStart.value = getWeekStart(new Date());
-  await loadSchedules();
-};
-
-const openAssistantDrawer = async () => {
-  assistantDrawerVisible.value = true;
-  if (!assistantMessages.value.length) {
-    await resetAssistantConversation();
-    return;
-  }
-  await scrollAssistantThread();
-};
-
-const submitAssistant = async () => {
-  if (!assistantInput.value.trim()) {
-    return;
-  }
-
-  const userMessage = createAssistantMessage('user', assistantInput.value.trim());
-  assistantMessages.value = [...assistantMessages.value, userMessage];
-  assistantInput.value = '';
-  assistantSubmitting.value = true;
-  await scrollAssistantThread();
-
-  try {
-    const data = await api.assistantArrange(
-      assistantMessages.value.map((message) => ({
-        role: message.role,
-        content: message.content
-      }))
-    );
-
-    assistantPendingFields.value = Array.isArray(data?.parsedIntent?.missingFields)
-      ? data.parsedIntent.missingFields
-      : [];
-
-    const metaParts = [];
-    if (data?.analysisMode === 'AI') {
-      metaParts.push('AI 解析');
-    } else if (data?.analysisMode) {
-      metaParts.push('规则解析');
+    if (schedule.isPartial) {
+      return {
+        fill: '#eff6ff',
+        stroke: '#93c5fd',
+        accent: '#3b82f6',
+        badge: '#dbeafe',
+        badgeText: '#1d4ed8'
+      };
     }
-    const parsedSummary = formatParsedIntentSummary(data?.parsedIntent);
-    if (parsedSummary) {
-      metaParts.push(parsedSummary);
-    }
-    if (data?.scheduled) {
-      metaParts.push(`已排 ${data.scheduledCount ?? 0} 节`);
-      assistantPendingFields.value = [];
+    return {
+      fill: '#fff7ed',
+      stroke: '#fdba74',
+      accent: '#f59e0b',
+      badge: '#ffedd5',
+      badgeText: '#c2410c'
+    };
+  };
+
+  const scheduleCards = groupedSchedules.value.map((schedule) => {
+    const dayIndex = dayIndexMap.get(schedule.dateKey);
+    if (dayIndex === undefined) {
+      return '';
     }
 
-    assistantMessages.value = [
-      ...assistantMessages.value,
-      createAssistantMessage('assistant', data?.reply ?? '已收到排课请求。', {
-        meta: metaParts.join(' · '),
-        warnings: data?.warnings ?? []
-      })
-    ];
-    await scrollAssistantThread();
+    const palette = statusPalette(schedule);
+    const x = gridLeft + dayIndex * (columnWidth + columnGap) + 10;
+    const y = gridTop + ((getMinutesOfDay(schedule.startTime) - visibleStart) / 60) * hourHeight + 8;
+    const widthValue = columnWidth - 20;
+    const heightValue = Math.max(76, ((getMinutesOfDay(schedule.endTime) - getMinutesOfDay(schedule.startTime)) / 60) * hourHeight - 12);
+    const accentInset = 10;
+    const accentLineX = x + 3;
+    const compact = heightValue < 102;
+    const footerText = schedule.isCompleted
+      ? '已销课'
+      : schedule.isPartial
+        ? `已销 ${schedule.completedCount}/${schedule.scheduleIds.length}`
+        : `${schedule.sessionNote} · ${schedule.participantLabel}`;
 
-    if (data?.scheduled) {
-      const firstSchedule = Array.isArray(data.generatedSchedules) ? data.generatedSchedules[0] : null;
-      if (firstSchedule?.startTime) {
-        currentWeekStart.value = getWeekStart(firstSchedule.startTime);
-      }
-      await loadSchedules();
-    }
-  } catch (requestError) {
-    const message = normalizeError(requestError, '智能排课失败');
-    assistantMessages.value = [
-      ...assistantMessages.value,
-      createAssistantMessage('assistant', message, { meta: '系统提示' })
-    ];
-    await scrollAssistantThread();
-    ElMessage.error(message);
-  } finally {
-    assistantSubmitting.value = false;
-  }
-};
+    return `
+      <g filter="url(#cardShadow)">
+        <rect x="${x}" y="${y}" width="${widthValue}" height="${heightValue}" rx="20" fill="${palette.fill}" stroke="${palette.stroke}" />
+        <line x1="${accentLineX}" y1="${y + accentInset}" x2="${accentLineX}" y2="${y + heightValue - accentInset}" stroke="${palette.accent}" stroke-width="5" stroke-linecap="round" />
+        <rect x="${x + 14}" y="${y + 14}" width="74" height="24" rx="12" fill="${palette.badge}" />
+        <text x="${x + 51}" y="${y + 30}" text-anchor="middle" font-size="11" font-weight="600" fill="${palette.badgeText}">${escapeSvgText(schedule.timeRange)}</text>
+        <text x="${x + 14}" y="${y + 58}" font-size="17" font-weight="700" fill="#0f172a">${escapeSvgText(truncateText(schedule.subject, 14))}</text>
+        ${compact ? '' : `<text x="${x + 14}" y="${y + 80}" font-size="12" fill="#475569">${escapeSvgText(truncateText(schedule.studentNamesLabel, 24))}</text>`}
+        ${compact ? '' : `<text x="${x + 14}" y="${y + 100}" font-size="11" fill="#64748b">${escapeSvgText(schedule.participantLabel)}</text>`}
+        <text x="${x + 14}" y="${y + heightValue - 18}" font-size="11" fill="${palette.badgeText}">${escapeSvgText(truncateText(footerText, 18))}</text>
+      </g>
+    `;
+  }).join('');
 
-watch(
-  () => createForm.weeklySessions,
-  (value) => {
-    if (createForm.weekdays.length > value) {
-      createForm.weekdays = createForm.weekdays.slice(0, value);
-    }
-  }
-);
+  const emptyOverlay = groupedSchedules.value.length
+    ? ''
+    : `
+      <g>
+        <rect x="${gridLeft + 120}" y="${gridTop + 110}" width="${gridAreaWidth - 240}" height="220" rx="36" fill="rgba(255,255,255,0.84)" stroke="#dbe7f3" />
+        <text x="${width / 2}" y="${gridTop + 206}" text-anchor="middle" font-size="34" font-weight="700" fill="#0f172a">本周暂无课程安排</text>
+        <text x="${width / 2}" y="${gridTop + 246}" text-anchor="middle" font-size="16" fill="#64748b">如需新增课程，请前往排课管理。</text>
+      </g>
+    `;
 
-watch(
-  () => route.query.action,
-  (action) => {
-    if (action === 'create') {
-      openCreateDialog(route.query.studentId ? Number(route.query.studentId) : null);
-    }
-  },
-  { immediate: true }
-);
+  const cuteDecorations = `
+    <g opacity="0.96">
+      <g transform="translate(-54 ${height - 134})" opacity="0.78">
+        <path d="M 0 96 A 96 96 0 0 1 192 96" fill="none" stroke="#fb7185" stroke-width="16" stroke-linecap="round" />
+        <path d="M 16 96 A 80 80 0 0 1 176 96" fill="none" stroke="#f59e0b" stroke-width="16" stroke-linecap="round" />
+        <path d="M 32 96 A 64 64 0 0 1 160 96" fill="none" stroke="#facc15" stroke-width="16" stroke-linecap="round" />
+        <path d="M 48 96 A 48 48 0 0 1 144 96" fill="none" stroke="#4ade80" stroke-width="16" stroke-linecap="round" />
+        <path d="M 64 96 A 32 32 0 0 1 128 96" fill="none" stroke="#60a5fa" stroke-width="16" stroke-linecap="round" />
+        <circle cx="22" cy="98" r="18" fill="rgba(255,255,255,0.95)" />
+        <circle cx="42" cy="88" r="22" fill="rgba(255,255,255,0.96)" />
+        <circle cx="68" cy="98" r="16" fill="rgba(255,255,255,0.94)" />
+        <circle cx="120" cy="98" r="16" fill="rgba(255,255,255,0.94)" />
+        <circle cx="148" cy="86" r="24" fill="rgba(255,255,255,0.96)" />
+        <circle cx="176" cy="98" r="18" fill="rgba(255,255,255,0.95)" />
+      </g>
+      <g transform="translate(${width - 650} 22)">
+        <path d="M 48 110 C 44 136 44 154 34 182" fill="none" stroke="rgba(148,163,184,0.58)" stroke-width="2.5" stroke-linecap="round" />
+        <path d="M 102 96 C 100 126 104 144 96 178" fill="none" stroke="rgba(148,163,184,0.58)" stroke-width="2.5" stroke-linecap="round" />
+        <path d="M 154 118 C 152 144 156 162 150 190" fill="none" stroke="rgba(148,163,184,0.58)" stroke-width="2.5" stroke-linecap="round" />
+        <ellipse cx="48" cy="70" rx="28" ry="36" fill="rgba(251,113,133,0.84)" stroke="rgba(225,29,72,0.22)" />
+        <ellipse cx="102" cy="56" rx="30" ry="38" fill="rgba(96,165,250,0.84)" stroke="rgba(37,99,235,0.22)" />
+        <ellipse cx="154" cy="82" rx="26" ry="34" fill="rgba(253,224,71,0.88)" stroke="rgba(217,119,6,0.22)" />
+        <path d="M 48 104 L 42 116 L 54 116 Z" fill="rgba(251,113,133,0.90)" />
+        <path d="M 102 92 L 96 104 L 108 104 Z" fill="rgba(96,165,250,0.90)" />
+        <path d="M 154 114 L 148 126 L 160 126 Z" fill="rgba(253,224,71,0.92)" />
+        <circle cx="40" cy="56" r="6" fill="rgba(255,255,255,0.24)" />
+        <circle cx="92" cy="42" r="7" fill="rgba(255,255,255,0.24)" />
+        <circle cx="146" cy="68" r="6" fill="rgba(255,255,255,0.22)" />
+      </g>
+      <g transform="translate(${width - 408} 10)">
+        <circle cx="70" cy="56" r="48" fill="rgba(253,224,71,0.20)" filter="url(#softBlur)" />
+        <circle cx="70" cy="56" r="34" fill="#fde047" stroke="rgba(245,158,11,0.34)" />
+        <path d="M 70 0 V 18" stroke="rgba(245,158,11,0.48)" stroke-width="6" stroke-linecap="round" />
+        <path d="M 70 94 V 112" stroke="rgba(245,158,11,0.48)" stroke-width="6" stroke-linecap="round" />
+        <path d="M 14 56 H 32" stroke="rgba(245,158,11,0.48)" stroke-width="6" stroke-linecap="round" />
+        <path d="M 108 56 H 126" stroke="rgba(245,158,11,0.48)" stroke-width="6" stroke-linecap="round" />
+        <path d="M 28 16 L 40 28" stroke="rgba(245,158,11,0.48)" stroke-width="6" stroke-linecap="round" />
+        <path d="M 100 84 L 112 96" stroke="rgba(245,158,11,0.48)" stroke-width="6" stroke-linecap="round" />
+        <path d="M 28 96 L 40 84" stroke="rgba(245,158,11,0.48)" stroke-width="6" stroke-linecap="round" />
+        <path d="M 100 28 L 112 16" stroke="rgba(245,158,11,0.48)" stroke-width="6" stroke-linecap="round" />
+        <circle cx="58" cy="54" r="4" fill="#334155" />
+        <circle cx="82" cy="54" r="4" fill="#334155" />
+        <path d="M 56 70 Q 70 82 84 70" fill="none" stroke="#334155" stroke-width="3" stroke-linecap="round" />
+        <circle cx="50" cy="66" r="5" fill="rgba(251,113,133,0.26)" />
+        <circle cx="90" cy="66" r="5" fill="rgba(251,113,133,0.26)" />
+      </g>
+      <g transform="translate(${width - 320} 36)">
+        <ellipse cx="126" cy="58" rx="62" ry="28" fill="rgba(255,255,255,0.92)" stroke="rgba(148,163,184,0.28)" />
+        <circle cx="84" cy="58" r="28" fill="rgba(255,255,255,0.96)" stroke="rgba(148,163,184,0.28)" />
+        <circle cx="126" cy="42" r="34" fill="rgba(255,255,255,0.96)" stroke="rgba(148,163,184,0.28)" />
+        <circle cx="166" cy="58" r="24" fill="rgba(255,255,255,0.96)" stroke="rgba(148,163,184,0.28)" />
+        <circle cx="104" cy="70" r="4" fill="#334155" />
+        <circle cx="144" cy="70" r="4" fill="#334155" />
+        <circle cx="92" cy="82" r="5" fill="rgba(251,113,133,0.38)" />
+        <circle cx="156" cy="82" r="5" fill="rgba(251,113,133,0.38)" />
+        <path d="M 114 88 Q 124 98 134 88" fill="none" stroke="#334155" stroke-width="3" stroke-linecap="round" />
+        <path d="M 58 28 L 64 16 L 70 28 L 82 34 L 70 40 L 64 52 L 58 40 L 46 34 Z" fill="rgba(253,224,71,0.82)" stroke="rgba(245,158,11,0.44)" />
+        <path d="M 198 24 L 202 16 L 206 24 L 214 28 L 206 32 L 202 40 L 198 32 L 190 28 Z" fill="rgba(125,211,252,0.88)" stroke="rgba(59,130,246,0.34)" />
+        <path d="M 220 76 L 225 66 L 230 76 L 240 81 L 230 86 L 225 96 L 220 86 L 210 81 Z" fill="rgba(253,224,71,0.72)" stroke="rgba(245,158,11,0.34)" />
+      </g>
+      <g transform="translate(180 ${height - 208}) rotate(-10)" opacity="0.84">
+        <rect x="0" y="18" width="34" height="172" rx="16" fill="#fbbf24" stroke="rgba(180,83,9,0.24)" />
+        <rect x="7" y="32" width="20" height="90" rx="10" fill="rgba(255,255,255,0.28)" />
+        <rect x="0" y="128" width="34" height="22" rx="8" fill="#fb7185" />
+        <path d="M 0 18 L 17 0 L 34 18 Z" fill="#fde68a" stroke="rgba(148,163,184,0.24)" />
+        <path d="M 11 8 L 17 2 L 23 8 Z" fill="#475569" />
+      </g>
+      <g transform="translate(${width - 262} ${height - 180})">
+        <rect x="18" y="56" width="118" height="84" rx="20" fill="rgba(255,255,255,0.88)" stroke="rgba(148,163,184,0.26)" />
+        <rect x="32" y="44" width="118" height="84" rx="20" fill="rgba(219,234,254,0.88)" stroke="rgba(96,165,250,0.28)" />
+        <path d="M 32 74 H 150" stroke="rgba(148,163,184,0.36)" stroke-width="4" stroke-linecap="round" />
+        <path d="M 52 92 H 132" stroke="rgba(148,163,184,0.30)" stroke-width="4" stroke-linecap="round" />
+        <path d="M 52 108 H 118" stroke="rgba(148,163,184,0.24)" stroke-width="4" stroke-linecap="round" />
+        <circle cx="116" cy="22" r="20" fill="rgba(255,255,255,0.96)" stroke="rgba(148,163,184,0.24)" />
+        <circle cx="108" cy="20" r="3.5" fill="#334155" />
+        <circle cx="124" cy="20" r="3.5" fill="#334155" />
+        <path d="M 108 30 Q 116 38 124 30" fill="none" stroke="#334155" stroke-width="3" stroke-linecap="round" />
+        <circle cx="102" cy="28" r="4" fill="rgba(251,113,133,0.30)" />
+        <circle cx="130" cy="28" r="4" fill="rgba(251,113,133,0.30)" />
+      </g>
+      <g opacity="0.72">
+        <path d="M ${outerPadding + 190} 54 L ${outerPadding + 196} 42 L ${outerPadding + 202} 54 L ${outerPadding + 214} 60 L ${outerPadding + 202} 66 L ${outerPadding + 196} 78 L ${outerPadding + 190} 66 L ${outerPadding + 178} 60 Z" fill="rgba(253,224,71,0.82)" />
+        <path d="M ${outerPadding + 226} 114 L ${outerPadding + 230} 106 L ${outerPadding + 234} 114 L ${outerPadding + 242} 118 L ${outerPadding + 234} 122 L ${outerPadding + 230} 130 L ${outerPadding + 226} 122 L ${outerPadding + 218} 118 Z" fill="rgba(125,211,252,0.88)" />
+      </g>
+    </g>
+  `;
 
-watch(
-  () => route.query.studentId,
-  (studentId) => {
-    filters.studentId = studentId ? Number(studentId) : null;
-  },
-  { immediate: true }
-);
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+      <defs>
+        <linearGradient id="posterBg" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#f8fbff" />
+          <stop offset="100%" stop-color="#eef6ff" />
+        </linearGradient>
+        <radialGradient id="posterGlowTop" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#7dd3fc" stop-opacity="0.48" />
+          <stop offset="100%" stop-color="#7dd3fc" stop-opacity="0" />
+        </radialGradient>
+        <radialGradient id="posterGlowBottom" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#bfdbfe" stop-opacity="0.56" />
+          <stop offset="100%" stop-color="#bfdbfe" stop-opacity="0" />
+        </radialGradient>
+        <linearGradient id="headerGlass" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#ffffff" stop-opacity="0.88" />
+          <stop offset="100%" stop-color="#ffffff" stop-opacity="0.52" />
+        </linearGradient>
+        <linearGradient id="boardGlass" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#ffffff" stop-opacity="0.60" />
+          <stop offset="100%" stop-color="#ffffff" stop-opacity="0.34" />
+        </linearGradient>
+        <pattern id="posterDots" width="28" height="28" patternUnits="userSpaceOnUse">
+          <circle cx="4" cy="4" r="1.8" fill="rgba(191,219,254,0.58)" />
+          <circle cx="18" cy="16" r="1.2" fill="rgba(125,211,252,0.42)" />
+        </pattern>
+        <filter id="softBlur" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="18" />
+        </filter>
+        <filter id="cardShadow" x="-20%" y="-20%" width="160%" height="180%">
+          <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.10" />
+        </filter>
+      </defs>
+      <rect width="${width}" height="${height}" rx="40" fill="url(#posterBg)" />
+      <rect width="${width}" height="${height}" rx="40" fill="url(#posterDots)" opacity="0.42" />
+      <ellipse cx="${width - 150}" cy="92" rx="230" ry="150" fill="url(#posterGlowTop)" filter="url(#softBlur)" />
+      <ellipse cx="120" cy="${height - 110}" rx="250" ry="180" fill="url(#posterGlowBottom)" filter="url(#softBlur)" />
+      <path d="M 0 ${height - 168} C 240 ${height - 236}, 460 ${height - 80}, 760 ${height - 138} S 1290 ${height - 230}, ${width} ${height - 124} L ${width} ${height} L 0 ${height} Z" fill="rgba(255,255,255,0.26)" />
+      <path d="M ${width - 410} 54 C ${width - 330} 18, ${width - 232} 20, ${width - 164} 82" fill="none" stroke="rgba(255,255,255,0.60)" stroke-width="3" stroke-linecap="round" />
+      <path d="M 110 102 C 190 54, 302 54, 386 98" fill="none" stroke="rgba(59,130,246,0.16)" stroke-width="4" stroke-linecap="round" />
+      <rect x="${outerPadding}" y="${outerPadding}" width="${titlePanelWidth}" height="${titlePanelHeight}" rx="34" fill="url(#headerGlass)" stroke="rgba(255,255,255,0.88)" />
+      <rect x="${outerPadding + 14}" y="${outerPadding + 14}" width="${titlePanelWidth - 28}" height="${titlePanelHeight - 28}" rx="28" fill="rgba(255,255,255,0.12)" stroke="rgba(191,219,254,0.38)" />
+      <rect x="${outerPadding}" y="${boardPanelY}" width="${leftRail - 18}" height="${boardPanelHeight}" rx="30" fill="url(#boardGlass)" stroke="rgba(203,213,225,0.82)" />
+      <rect x="${outerPadding + 10}" y="${boardPanelY + 14}" width="${leftRail - 38}" height="${boardPanelHeight - 28}" rx="24" fill="rgba(255,255,255,0.30)" stroke="rgba(255,255,255,0.42)" />
+      <rect x="${gridLeft - 18}" y="${boardPanelY}" width="${gridAreaWidth + 36}" height="${boardPanelHeight}" rx="34" fill="url(#boardGlass)" stroke="rgba(191,219,254,0.82)" />
+      <circle cx="${width - 96}" cy="90" r="46" fill="rgba(255,255,255,0.32)" />
+      <circle cx="${width - 152}" cy="136" r="18" fill="rgba(59,130,246,0.16)" />
+      ${cuteDecorations}
+      <text x="${outerPadding}" y="${outerPadding + 34}" font-size="18" fill="#2563eb" font-weight="700">Qingqing Ketang</text>
+      <text x="${outerPadding}" y="${outerPadding + 82}" font-size="42" fill="#0f172a" font-weight="800">本周课程表</text>
+      <text x="${outerPadding}" y="${outerPadding + 114}" font-size="16" fill="#475569">${escapeSvgText(currentWeekLabel.value)}</text>
+      <text x="${outerPadding}" y="${outerPadding + 138}" font-size="14" fill="#64748b">${escapeSvgText(truncateText(scheduleHeroCaption.value, 56))}</text>
+      ${dayHeaders}
+      ${verticalLines}
+      ${timelineRail}
+      ${horizontalGrid}
+      ${scheduleCards}
+      ${emptyOverlay}
+    </svg>
+  `;
+
+  return createSvgImageUrl(svg);
+});
 
 onMounted(async () => {
-  await loadPageData();
-  await resetAssistantConversation();
+  await loadSchedules();
 });
 </script>
 
 <style scoped>
-.page-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.planner-hero,
-.schedule-control-card {
-  background: var(--app-surface);
-}
-
-.planner-hero__body {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.95fr);
-  gap: 20px;
-}
-
-.planner-hero__intro {
-  padding: 4px 0;
-}
-
-.planner-hero__eyebrow {
-  display: inline-flex;
-  margin-bottom: 10px;
-  color: var(--app-text-tertiary);
-  font-size: 12px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.planner-hero__intro h3 {
-  margin-bottom: 10px;
-  font-size: 28px;
-  line-height: 1.15;
-}
-
-.planner-hero__intro p {
-  max-width: 620px;
-  color: var(--app-text-secondary);
-  line-height: 1.7;
-}
-
-.planner-hero__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 18px;
-}
-
-.planner-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 9px 12px;
-  border: 1px solid var(--app-border);
-  border-radius: 999px;
-  background: var(--app-primary-soft);
-  color: var(--app-text-secondary);
-  font-size: 13px;
-}
-
-.planner-hero__stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.planner-stat {
-  padding: 16px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-surface-muted);
-}
-
-.planner-stat span {
-  display: block;
-  margin-bottom: 10px;
-  color: var(--app-text-secondary);
-  font-size: 13px;
-}
-
-.planner-stat strong {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 28px;
-  line-height: 1;
-}
-
-.planner-stat small {
-  color: var(--app-text-tertiary);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.schedule-control {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.schedule-control__summary {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.schedule-control__eyebrow {
-  color: var(--app-text-tertiary);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.schedule-control__summary strong {
-  font-size: 22px;
-  line-height: 1.1;
-}
-
-.schedule-control__summary p {
-  color: var(--app-text-secondary);
-  font-size: 14px;
-  line-height: 1.7;
-}
-
-.schedule-control__tools {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 12px;
-}
-
-.schedule-control__nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.toolbar-select {
-  width: 220px;
-}
-
-.schedule-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 18px;
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--app-border);
-  color: var(--app-text-secondary);
-  font-size: 13px;
-}
-
-.schedule-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.schedule-legend__dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-}
-
-.schedule-legend__dot--planned {
-  background: #f59e0b;
-}
-
-.schedule-legend__dot--completed {
-  background: #22c55e;
-}
-
-.week-board {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.day-card {
-  min-height: 320px;
-  border: 1px solid var(--app-border);
-  background: var(--app-surface);
-}
-
-.day-card :deep(.el-card__body) {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.day-card__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.day-card__weekday {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--app-text-tertiary);
-  font-size: 12px;
-}
-
-.day-card__count {
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.06);
-  color: var(--app-text-secondary);
-  font-size: 12px;
-}
-
-.schedule-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.schedule-item {
+.schedule-board-card {
   position: relative;
-  padding: 12px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-surface-muted);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 30%),
+    linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
 }
 
-.schedule-item::before {
+.schedule-board-card::before {
   content: '';
   position: absolute;
-  top: 14px;
-  left: 0;
-  bottom: 14px;
-  width: 3px;
-  border-radius: 999px;
-  background: #f59e0b;
+  inset: 0 0 auto 0;
+  height: 180px;
+  background:
+    linear-gradient(135deg, rgba(59, 130, 246, 0.08), transparent 55%),
+    radial-gradient(circle at 18% 18%, rgba(14, 165, 233, 0.12), transparent 26%);
+  pointer-events: none;
 }
 
-.schedule-item[data-completed='true'] {
-  background: rgba(34, 197, 94, 0.05);
-  border-color: rgba(34, 197, 94, 0.18);
+.schedule-board-card :deep(.el-card__body) {
+  position: relative;
+  z-index: 1;
 }
 
-.schedule-item[data-completed='true']::before {
-  background: #22c55e;
+.schedule-poster-section {
+  margin-top: 4px;
 }
 
-.schedule-item__meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
+.schedule-poster-frame {
+  padding: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(125, 211, 252, 0.16), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
-.schedule-item__time {
-  color: var(--app-text-secondary);
-  font-size: 13px;
-}
-
-.schedule-item strong {
+.schedule-poster-image {
   display: block;
-  margin-bottom: 4px;
-  font-size: 15px;
+  width: 100%;
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
+  cursor: zoom-in;
 }
 
-.schedule-item p {
-  color: var(--app-text-secondary);
-  font-size: 13px;
-}
-
-.schedule-item__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 12px;
-  color: var(--app-text-tertiary);
-  font-size: 12px;
-}
-
-.day-card__empty {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed var(--app-border);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-surface-muted);
-  color: var(--app-text-tertiary);
-  text-align: center;
-}
-
-.day-card__empty span {
-  margin-bottom: 4px;
-  color: var(--app-text-secondary);
-}
-
-.dialog-intro {
-  margin-bottom: 20px;
-  padding: 14px 16px;
-  border: 1px solid rgba(59, 130, 246, 0.12);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-primary-soft);
-}
-
-.dialog-intro__eyebrow,
-.schedule-preview__eyebrow,
-.assistant-guide__eyebrow {
-  display: inline-flex;
-  margin-bottom: 8px;
-  color: var(--app-text-tertiary);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.dialog-intro p {
-  color: var(--app-text-secondary);
-  line-height: 1.7;
-}
-
-.dialog-form {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.dialog-block {
-  padding: 16px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-surface);
-}
-
-.dialog-block__head {
-  margin-bottom: 16px;
-}
-
-.dialog-block__head h4 {
-  margin-bottom: 4px;
-  font-size: 16px;
-}
-
-.dialog-block__head small {
-  color: var(--app-text-secondary);
-  line-height: 1.6;
-}
-
-.dialog-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.weekday-chip-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.weekday-chip {
-  padding: 12px 10px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-surface);
-  color: var(--app-text-secondary);
-  cursor: pointer;
-  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
-}
-
-.weekday-chip[data-active='true'] {
-  border-color: rgba(59, 130, 246, 0.34);
-  background: rgba(59, 130, 246, 0.08);
-  color: var(--app-primary);
-}
-
-.weekday-chip:disabled {
-  cursor: not-allowed;
-  opacity: 0.46;
-}
-
-.weekday-chip:not(:disabled):hover {
-  transform: translateY(-1px);
-}
-
-.schedule-preview {
-  padding: 16px;
-  border-radius: var(--app-radius-sm);
-  background: #111827;
-  color: rgba(255, 255, 255, 0.92);
-}
-
-.schedule-preview strong {
+.schedule-poster-image :deep(.el-image__inner) {
   display: block;
-  margin-bottom: 8px;
-  font-size: 17px;
-  line-height: 1.6;
-}
-
-.schedule-preview small {
-  color: rgba(255, 255, 255, 0.68);
-  line-height: 1.7;
-}
-
-.dialog-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-}
-
-.field-hint {
-  display: inline-flex;
-  color: var(--app-text-secondary);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.assistant-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.assistant-guide {
-  padding: 14px 16px;
-  border: 1px solid rgba(59, 130, 246, 0.12);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-primary-soft);
-}
-
-.assistant-guide h4 {
-  margin-bottom: 8px;
-  font-size: 20px;
-}
-
-.assistant-guide p {
-  color: var(--app-text-secondary);
-  line-height: 1.8;
-}
-
-.assistant-examples {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.assistant-example {
-  padding: 10px 12px;
-  border: 1px solid var(--app-border);
-  border-radius: 999px;
-  background: var(--app-surface);
-  color: var(--app-text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.assistant-thread {
-  max-height: 360px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding-right: 4px;
-}
-
-.assistant-message {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.assistant-message__meta {
-  display: flex;
-  gap: 8px;
-  color: var(--app-text-tertiary);
-  font-size: 12px;
-}
-
-.assistant-message__bubble {
-  padding: 12px 14px;
-  border-radius: var(--app-radius-sm);
-  background: var(--app-surface-muted);
-  color: var(--app-text-primary);
-  line-height: 1.7;
-}
-
-.assistant-message[data-role='user'] .assistant-message__bubble {
-  background: var(--app-primary-soft);
-}
-
-.assistant-message__bubble ul {
-  margin-top: 8px;
-  padding-left: 18px;
-  color: var(--app-text-secondary);
-}
-
-.assistant-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.assistant-actions__buttons {
-  display: flex;
-  gap: 12px;
-}
-
-.page-state {
-  color: var(--app-text-secondary);
-  font-size: 14px;
-}
-
-@media (max-width: 1440px) {
-  .planner-hero__body {
-    grid-template-columns: 1fr;
-  }
-
-  .week-board {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 1200px) {
-  .schedule-control,
-  .assistant-actions {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .schedule-control__tools {
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  .week-board {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+  width: 100%;
+  height: auto;
+  border-radius: 22px;
 }
 
 @media (max-width: 900px) {
-  .dialog-grid,
-  .week-board,
-  .planner-hero__stats,
-  .weekday-chip-grid {
-    grid-template-columns: 1fr;
+  .schedule-poster-frame {
+    padding: 12px;
+    border-radius: 20px;
   }
 
-  .toolbar-select {
-    width: 100%;
+  .schedule-poster-image {
+    border-radius: 18px;
   }
 
-  .schedule-item__footer,
-  .assistant-actions,
-  .schedule-control__nav {
-    width: 100%;
-    flex-direction: column;
-    align-items: flex-start;
+  .schedule-poster-image :deep(.el-image__inner) {
+    border-radius: 18px;
   }
 }
 </style>

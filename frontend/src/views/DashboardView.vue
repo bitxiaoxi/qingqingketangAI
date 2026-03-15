@@ -190,7 +190,18 @@ const monthIncome = computed(() => {
   return total;
 });
 
-const monthIncomeLabel = computed(() => formatCurrency(animatedMonthIncome.value));
+const normalizeIncomeValue = (value) => {
+  const amount = Number(value ?? 0);
+  if (Number.isNaN(amount) || amount < 0) {
+    return 0;
+  }
+  return Math.round(amount);
+};
+
+const monthIncomeLabel = computed(() => formatCurrency(animatedMonthIncome.value, {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0
+}));
 
 const todayCourseCount = computed(() => {
   const today = formatDateParam(new Date());
@@ -330,26 +341,33 @@ const animateMonthIncome = (targetValue) => {
     incomeAnimationFrame = 0;
   }
 
-  const normalizedTarget = Number(targetValue ?? 0);
+  const normalizedTarget = normalizeIncomeValue(targetValue);
   if (prefersReducedMotion()) {
     animatedMonthIncome.value = normalizedTarget;
     return;
   }
 
-  const fromValue = animatedMonthIncome.value;
-  if (Math.abs(normalizedTarget - fromValue) < 0.01) {
+  const fromValue = normalizeIncomeValue(animatedMonthIncome.value);
+  if (normalizedTarget === fromValue) {
     animatedMonthIncome.value = normalizedTarget;
     return;
   }
 
-  const duration = 1400;
+  const distance = Math.abs(normalizedTarget - fromValue);
+  const direction = normalizedTarget > fromValue ? 1 : -1;
+  const duration = Math.min(1500, Math.max(720, Math.sqrt(distance) * 14));
   const startTime = performance.now();
-  const easeOutQuart = (progress) => 1 - Math.pow(1 - progress, 4);
+  const easeOutCubic = (progress) => 1 - Math.pow(1 - progress, 3);
 
   const tick = (timestamp) => {
     const progress = Math.min((timestamp - startTime) / duration, 1);
-    const easedProgress = easeOutQuart(progress);
-    animatedMonthIncome.value = fromValue + (normalizedTarget - fromValue) * easedProgress;
+    const easedProgress = easeOutCubic(progress);
+    const nextValue = fromValue + (normalizedTarget - fromValue) * easedProgress;
+    const roundedValue = direction > 0 ? Math.floor(nextValue) : Math.ceil(nextValue);
+
+    animatedMonthIncome.value = direction > 0
+      ? Math.min(Math.max(roundedValue, fromValue), normalizedTarget)
+      : Math.max(Math.min(roundedValue, fromValue), normalizedTarget);
 
     if (progress < 1) {
       incomeAnimationFrame = requestAnimationFrame(tick);

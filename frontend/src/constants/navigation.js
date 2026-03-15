@@ -1,4 +1,4 @@
-import { House, Calendar, User, Opportunity, Wallet } from '@element-plus/icons-vue';
+import { House, Calendar, EditPen, User, Opportunity, Wallet } from '@element-plus/icons-vue';
 
 export const navigationItems = [
   {
@@ -19,10 +19,22 @@ export const navigationItems = [
     component: () => import('../views/CoursesView.vue'),
     icon: Calendar,
     meta: {
-      label: '课程管理',
-      caption: '排课与课表',
-      title: '课程管理',
-      description: '统一查看周课表、排课草案和 AI 排课结果。'
+      label: '本周课程表',
+      caption: '周课表查看',
+      title: '本周课程表',
+      description: '集中查看本周课程表图片，支持按学生筛选和周切换。'
+    }
+  },
+  {
+    path: '/planner',
+    name: 'planner',
+    component: () => import('../views/PlannerView.vue'),
+    icon: EditPen,
+    meta: {
+      label: '排课管理',
+      caption: '手动与 AI',
+      title: '排课管理',
+      description: '集中处理手动排课与 AI 排课，为学生快速生成正式课课表。'
     }
   },
   {
