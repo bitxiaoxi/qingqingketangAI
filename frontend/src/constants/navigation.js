@@ -19,10 +19,10 @@ export const navigationItems = [
     component: () => import('../views/CoursesView.vue'),
     icon: Calendar,
     meta: {
-      label: '本周课程表',
+      label: '课程表',
       caption: '周课表查看',
-      title: '本周课程表',
-      description: '集中查看本周课程表图片，支持按学生筛选和周切换。'
+      title: '课程表',
+      description: '集中查看周课表图片，支持切换查看上周、本周和下周。'
     }
   },
   {

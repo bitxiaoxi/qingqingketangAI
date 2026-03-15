@@ -1,12 +1,32 @@
 <template>
   <section class="page-stack">
     <el-card shadow="never" class="schedule-board-card">
-      <div v-if="loading" class="page-state">课表加载中…</div>
-      <el-alert v-else-if="error" :title="error" type="error" show-icon :closable="false" />
+      <div v-if="loading" class="page-state schedule-board-state">课表加载中…</div>
+      <el-alert
+        v-else-if="error"
+        :title="error"
+        type="error"
+        show-icon
+        :closable="false"
+        class="schedule-board-alert"
+      />
       <div v-else class="schedule-poster-section">
         <div class="schedule-poster-frame">
           <div class="schedule-poster-toolbar">
-            <el-button class="schedule-print-button" :disabled="!schedulePosterUrl" @click="printSchedulePoster">
+            <el-button class="schedule-toolbar-button" :disabled="loading" @click="handleWeekChange(-1)">
+              上一周
+            </el-button>
+            <el-button class="schedule-toolbar-button" :disabled="loading" @click="goToCurrentWeek">
+              回到本周
+            </el-button>
+            <el-button class="schedule-toolbar-button" :disabled="loading" @click="handleWeekChange(1)">
+              下一周
+            </el-button>
+            <el-button
+              class="schedule-toolbar-button"
+              :disabled="loading || Boolean(error) || !schedulePosterUrl"
+              @click="printSchedulePoster"
+            >
               打印课表
             </el-button>
           </div>
@@ -19,7 +39,7 @@
             preview-teleported
             hide-on-click-modal
           />
-          <el-empty v-else description="本周暂无排课安排" :image-size="72" />
+          <el-empty v-else description="该周暂无排课安排" :image-size="72" />
         </div>
       </div>
     </el-card>
@@ -41,10 +61,13 @@ import {
   normalizeError
 } from '../utils/format';
 
+const MILLISECONDS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
+
 const loading = ref(false);
 const error = ref('');
 const schedules = ref([]);
 const currentWeekStart = ref(getWeekStart(new Date()));
+let activeLoadRequestId = 0;
 
 const escapeSvgText = (value) => {
   return String(value ?? '')
@@ -106,7 +129,7 @@ const printSchedulePoster = () => {
     return;
   }
 
-  const posterTitle = escapeSvgText(`本周课程表 ${currentWeekLabel.value}`);
+  const posterTitle = escapeSvgText(`${weekHeadingLabel.value} ${currentWeekLabel.value}`);
   frameWindow.document.open();
   frameWindow.document.write(`
     <!doctype html>
@@ -182,15 +205,26 @@ const printSchedulePoster = () => {
   printImage?.addEventListener('error', cleanup, { once: true });
 };
 
-const loadSchedules = async () => {
+const loadSchedules = async (weekStart = currentWeekStart.value) => {
+  const requestId = ++activeLoadRequestId;
   loading.value = true;
   error.value = '';
+  schedules.value = [];
   try {
-    schedules.value = await api.listWeekSchedules(formatDateParam(currentWeekStart.value));
+    const scheduleList = await api.listWeekSchedules(formatDateParam(weekStart));
+    if (requestId !== activeLoadRequestId) {
+      return;
+    }
+    schedules.value = scheduleList ?? [];
   } catch (requestError) {
+    if (requestId !== activeLoadRequestId) {
+      return;
+    }
     error.value = normalizeError(requestError, '课表加载失败');
   } finally {
-    loading.value = false;
+    if (requestId === activeLoadRequestId) {
+      loading.value = false;
+    }
   }
 };
 
@@ -297,6 +331,40 @@ const weekDays = computed(() => {
 });
 
 const currentWeekLabel = computed(() => formatWeekRange(currentWeekStart.value));
+
+const weekRelativeOffset = computed(() => {
+  const thisWeekStart = currentWeekStart.value ? currentWeekStart.value.getTime() : 0;
+  const todayWeekStart = getWeekStart(new Date()).getTime();
+  return Math.round((thisWeekStart - todayWeekStart) / MILLISECONDS_PER_WEEK);
+});
+
+const weekRelativeLabel = computed(() => {
+  const offset = weekRelativeOffset.value;
+  if (offset === 0) {
+    return '本周';
+  }
+  if (offset === -1) {
+    return '上周';
+  }
+  if (offset === 1) {
+    return '下周';
+  }
+  return offset > 0 ? `${offset} 周后` : `${Math.abs(offset)} 周前`;
+});
+
+const weekHeadingLabel = computed(() => `${weekRelativeLabel.value}课程表`);
+
+const handleWeekChange = async (offset) => {
+  const nextWeekStart = new Date(currentWeekStart.value);
+  nextWeekStart.setDate(nextWeekStart.getDate() + offset * 7);
+  currentWeekStart.value = getWeekStart(nextWeekStart);
+  await loadSchedules(currentWeekStart.value);
+};
+
+const goToCurrentWeek = async () => {
+  currentWeekStart.value = getWeekStart(new Date());
+  await loadSchedules(currentWeekStart.value);
+};
 
 const nextUpcomingSchedule = computed(() => {
   const now = Date.now();
@@ -469,7 +537,7 @@ const schedulePosterUrl = computed(() => {
     : `
       <g>
         <rect x="${gridLeft + 120}" y="${gridTop + 110}" width="${gridAreaWidth - 240}" height="220" rx="36" fill="rgba(255,255,255,0.84)" stroke="#dbe7f3" />
-        <text x="${width / 2}" y="${gridTop + 206}" text-anchor="middle" font-size="34" font-weight="700" fill="#0f172a">本周暂无课程安排</text>
+        <text x="${width / 2}" y="${gridTop + 206}" text-anchor="middle" font-size="34" font-weight="700" fill="#0f172a">${escapeSvgText(`${weekRelativeLabel.value}暂无课程安排`)}</text>
         <text x="${width / 2}" y="${gridTop + 246}" text-anchor="middle" font-size="16" fill="#64748b">如需新增课程，请前往排课管理。</text>
       </g>
     `;
@@ -606,8 +674,8 @@ const schedulePosterUrl = computed(() => {
       <circle cx="${width - 152}" cy="136" r="18" fill="rgba(59,130,246,0.16)" />
       ${cuteDecorations}
       <text x="${titleTextX}" y="${outerPadding + 38}" font-size="19" fill="#2563eb" font-weight="800" letter-spacing="2.8" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif">QINGQINGKETANG</text>
-      <text x="${titleTextX}" y="${outerPadding + 88}" font-size="40" fill="url(#titleInk)" font-weight="800" letter-spacing="1.1" font-family="'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', sans-serif" filter="url(#titleShadow)">本周课程表</text>
-      <text x="${titleTextX}" y="${outerPadding + 120}" font-size="17" fill="#475569" font-weight="700" letter-spacing="0.9" font-family="'Avenir Next', 'DIN Alternate', 'Helvetica Neue', Arial, sans-serif">${escapeSvgText(currentWeekLabel.value)}</text>
+        <text x="${titleTextX}" y="${outerPadding + 88}" font-size="40" fill="url(#titleInk)" font-weight="800" letter-spacing="1.1" font-family="'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', sans-serif" filter="url(#titleShadow)">${escapeSvgText(weekHeadingLabel.value)}</text>
+        <text x="${titleTextX}" y="${outerPadding + 120}" font-size="17" fill="#475569" font-weight="700" letter-spacing="0.9" font-family="'Avenir Next', 'DIN Alternate', 'Helvetica Neue', Arial, sans-serif">${escapeSvgText(currentWeekLabel.value)}</text>
       ${dayHeaders}
       ${verticalLines}
       ${timelineRail}
@@ -646,8 +714,31 @@ onMounted(async () => {
   background: transparent;
 }
 
+.schedule-board-state {
+  min-height: 420px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.schedule-board-alert {
+  margin: 0 28px 28px;
+}
+
 .schedule-poster-section {
   margin-top: 0;
+  padding: 0 28px 28px;
+}
+
+.schedule-poster-frame {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: 30px;
+  background: transparent;
 }
 
 .schedule-poster-toolbar {
@@ -655,9 +746,13 @@ onMounted(async () => {
   top: 52px;
   right: 34px;
   z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
-.schedule-print-button {
+.schedule-toolbar-button {
   --el-button-bg-color: rgba(255, 255, 255, 0.72);
   --el-button-border-color: rgba(255, 255, 255, 0.78);
   --el-button-text-color: #1d4ed8;
@@ -674,17 +769,6 @@ onMounted(async () => {
   box-shadow: 0 10px 24px rgba(59, 130, 246, 0.12);
   font-size: 13px;
   font-weight: 700;
-}
-
-.schedule-poster-frame {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 0;
-  border: 0;
-  border-radius: 30px;
-  background: transparent;
 }
 
 .schedule-poster-image {
@@ -704,9 +788,19 @@ onMounted(async () => {
 }
 
 @media (max-width: 900px) {
+  .schedule-board-alert {
+    margin: 0 20px 20px;
+  }
+
+  .schedule-poster-section {
+    padding: 0 20px 20px;
+  }
+
   .schedule-poster-toolbar {
     top: 30px;
     right: 20px;
+    left: 20px;
+    justify-content: flex-end;
   }
 
   .schedule-poster-image {
