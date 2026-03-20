@@ -62,8 +62,23 @@ export const api = {
   listWeekSchedules(startDate) {
     return request(`/api/schedules/week?start=${startDate}`);
   },
+  listStudentPlannedSchedules(studentId) {
+    return request(`/api/schedules/students/${studentId}/planned`);
+  },
   generateSchedules(studentId, body) {
     return request(`/api/schedules/students/${studentId}/auto-generate`, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+  },
+  createTemporaryLesson(studentId, body) {
+    return request(`/api/schedules/students/${studentId}/temporary-lesson`, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+  },
+  rescheduleSchedule(scheduleId, body) {
+    return request(`/api/schedules/${scheduleId}/reschedule`, {
       method: 'POST',
       body: JSON.stringify(body)
     });

@@ -103,6 +103,69 @@ const truncateText = (value, maxLength) => {
   return `${text.slice(0, Math.max(0, maxLength - 1))}…`;
 };
 
+const getTextUnits = (value) => {
+  return Array.from(String(value ?? '')).reduce((total, character) => {
+    return total + (/[\u0000-\u00ff]/.test(character) ? 0.55 : 1);
+  }, 0);
+};
+
+const truncateTextByUnits = (value, maxUnits) => {
+  const text = String(value ?? '');
+  if (getTextUnits(text) <= maxUnits) {
+    return text;
+  }
+
+  let result = '';
+  for (const character of Array.from(text)) {
+    const next = `${result}${character}`;
+    if (getTextUnits(`${next}…`) > maxUnits) {
+      break;
+    }
+    result = next;
+  }
+  return `${result}…`;
+};
+
+const buildStudentNameLines = (studentNames, maxUnitsPerLine, maxLines) => {
+  const names = (studentNames ?? []).map((name) => String(name ?? '').trim()).filter(Boolean);
+  if (!names.length || maxUnitsPerLine <= 0 || maxLines <= 0) {
+    return [];
+  }
+
+  const lines = [];
+  let index = 0;
+
+  while (index < names.length && lines.length < maxLines) {
+    let currentLine = '';
+    while (index < names.length) {
+      const segment = currentLine ? `、${names[index]}` : names[index];
+      if (getTextUnits(`${currentLine}${segment}`) <= maxUnitsPerLine) {
+        currentLine += segment;
+        index += 1;
+        continue;
+      }
+      if (!currentLine) {
+        currentLine = truncateTextByUnits(names[index], maxUnitsPerLine);
+        index += 1;
+      }
+      break;
+    }
+
+    if (!currentLine) {
+      break;
+    }
+    lines.push(currentLine);
+  }
+
+  if (index < names.length && lines.length) {
+    const suffix = `等${names.length}位`;
+    const remainingUnits = Math.max(3, maxUnitsPerLine - getTextUnits(suffix));
+    lines[lines.length - 1] = `${truncateTextByUnits(lines[lines.length - 1], remainingUnits)}${suffix}`;
+  }
+
+  return lines;
+};
+
 const getMinutesOfDay = (value) => {
   const date = new Date(value);
   return date.getHours() * 60 + date.getMinutes();
@@ -333,6 +396,7 @@ const groupedSchedules = computed(() => {
         pendingScheduleIds: group.pendingScheduleIds,
         participantCount,
         participantLabel: `共 ${participantCount} 位学员`,
+        studentNames,
         studentNamesLabel: studentNames.join('、'),
         completedCount,
         pendingCount,
@@ -702,6 +766,16 @@ const schedulePosterUrl = computed(() => {
     const accentInset = 10;
     const accentLineX = x + 3;
     const compact = cardLayout.compact;
+    const studentNamesStartY = y + 80;
+    const maxNameLines = Math.max(1, Math.min(4, Math.floor((heightValue - 92) / 14)));
+    const maxUnitsPerLine = Math.max(8, Math.floor((widthValue - 44) / 12));
+    const studentNameLines = compact
+      ? []
+      : buildStudentNameLines(schedule.studentNames, maxUnitsPerLine, maxNameLines);
+    const studentNameText = studentNameLines.map((line, index) => {
+      const dy = index === 0 ? 0 : 15;
+      return `<tspan x="${x + 14}" dy="${dy}">${escapeSvgText(line)}</tspan>`;
+    }).join('');
     return `
       <g filter="url(#cardShadow)">
         <rect x="${x}" y="${y}" width="${widthValue}" height="${heightValue}" rx="20" fill="${palette.fill}" stroke="${palette.stroke}" />
@@ -709,7 +783,7 @@ const schedulePosterUrl = computed(() => {
         <rect x="${x + 14}" y="${y + 14}" width="74" height="24" rx="12" fill="${palette.badge}" />
         <text x="${x + 51}" y="${y + 30}" text-anchor="middle" font-size="11" font-weight="600" fill="${palette.badgeText}">${escapeSvgText(schedule.timeRange)}</text>
         <text x="${x + 14}" y="${y + 58}" font-size="17" font-weight="700" fill="#0f172a">${escapeSvgText(truncateText(schedule.subject, 14))}</text>
-        ${compact ? '' : `<text x="${x + 14}" y="${y + 80}" font-size="12" fill="#475569">${escapeSvgText(truncateText(schedule.studentNamesLabel, 24))}</text>`}
+        ${compact || !studentNameText ? '' : `<text x="${x + 14}" y="${studentNamesStartY}" font-size="12" fill="#475569">${studentNameText}</text>`}
       </g>
     `;
   }).join('');

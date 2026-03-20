@@ -197,7 +197,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import PageHeader from '../components/common/PageHeader.vue';
@@ -226,6 +226,18 @@ const tuitionOverview = ref({
   totalConsumed: 0,
   totalPending: 0
 });
+const animatedSummaryAmounts = reactive({
+  totalReceived: 0,
+  monthIncome: 0,
+  totalConsumed: 0,
+  totalPending: 0
+});
+const amountAnimationFrames = {
+  totalReceived: 0,
+  monthIncome: 0,
+  totalConsumed: 0,
+  totalPending: 0
+};
 const renewForm = reactive({
   studentId: route.query.studentId ? Number(route.query.studentId) : null,
   tuitionPaid: '',
@@ -252,39 +264,99 @@ const loadFinanceData = async () => {
   }
 };
 
-const monthIncome = computed(() => {
-  const total = records.value
+const monthIncomeTotal = computed(() => {
+  return records.value
     .filter((record) => isCurrentMonth(record.paidAt))
     .reduce((sum, record) => sum + Number(record.tuitionPaid ?? 0), 0);
-  return `${formatCurrency(total)} 元`;
 });
 
 const metricCards = computed(() => [
   {
     label: '总收入',
-    value: formatAmount(tuitionOverview.value.totalReceived),
+    value: formatAmount(animatedSummaryAmounts.totalReceived / 100),
     helper: '累计收费流水',
     tone: 'summary-item__dot--blue'
   },
   {
     label: '本月收入',
-    value: monthIncome.value,
+    value: formatAmount(animatedSummaryAmounts.monthIncome / 100),
     helper: '按本月收费时间汇总',
     tone: 'summary-item__dot--green'
   },
   {
     label: '已核销费用',
-    value: formatAmount(tuitionOverview.value.totalConsumed),
+    value: formatAmount(animatedSummaryAmounts.totalConsumed / 100),
     helper: '已完成销课核销',
     tone: 'summary-item__dot--violet'
   },
   {
     label: '待核销费用',
-    value: formatAmount(tuitionOverview.value.totalPending),
+    value: formatAmount(animatedSummaryAmounts.totalPending / 100),
     helper: '待后续销课核销',
     tone: 'summary-item__dot--amber'
   }
 ]);
+
+const prefersReducedMotion = () => {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+};
+
+const normalizeAmountCents = (value) => {
+  const amount = Number(value ?? 0);
+  if (Number.isNaN(amount) || amount < 0) {
+    return 0;
+  }
+  return Math.round(amount * 100);
+};
+
+const animateSummaryAmount = (key, targetValue) => {
+  if (amountAnimationFrames[key]) {
+    cancelAnimationFrame(amountAnimationFrames[key]);
+    amountAnimationFrames[key] = 0;
+  }
+
+  const normalizedTarget = normalizeAmountCents(targetValue);
+  if (prefersReducedMotion()) {
+    animatedSummaryAmounts[key] = normalizedTarget;
+    return;
+  }
+
+  const fromValue = normalizeAmountCents(animatedSummaryAmounts[key] / 100);
+  if (normalizedTarget === fromValue) {
+    animatedSummaryAmounts[key] = normalizedTarget;
+    return;
+  }
+
+  const distance = Math.abs(normalizedTarget - fromValue);
+  const direction = normalizedTarget > fromValue ? 1 : -1;
+  const duration = Math.min(1500, Math.max(720, Math.sqrt(distance) * 14));
+  const startTime = performance.now();
+  const easeOutCubic = (progress) => 1 - Math.pow(1 - progress, 3);
+
+  const tick = (timestamp) => {
+    const progress = Math.min((timestamp - startTime) / duration, 1);
+    const easedProgress = easeOutCubic(progress);
+    const nextValue = fromValue + (normalizedTarget - fromValue) * easedProgress;
+    const roundedValue = direction > 0 ? Math.floor(nextValue) : Math.ceil(nextValue);
+
+    animatedSummaryAmounts[key] = direction > 0
+      ? Math.min(Math.max(roundedValue, fromValue), normalizedTarget)
+      : Math.max(Math.min(roundedValue, fromValue), normalizedTarget);
+
+    if (progress < 1) {
+      amountAnimationFrames[key] = requestAnimationFrame(tick);
+      return;
+    }
+
+    animatedSummaryAmounts[key] = normalizedTarget;
+    amountAnimationFrames[key] = 0;
+  };
+
+  amountAnimationFrames[key] = requestAnimationFrame(tick);
+};
 
 const groupedRecords = computed(() => {
   const groupMap = new Map();
@@ -438,5 +510,30 @@ watch(filteredRecordGroups, (groups) => {
   selectedRecordGroup.value = null;
 });
 
+watch(
+  () => [
+    tuitionOverview.value.totalReceived,
+    monthIncomeTotal.value,
+    tuitionOverview.value.totalConsumed,
+    tuitionOverview.value.totalPending
+  ],
+  ([totalReceived, monthIncome, totalConsumed, totalPending]) => {
+    animateSummaryAmount('totalReceived', totalReceived);
+    animateSummaryAmount('monthIncome', monthIncome);
+    animateSummaryAmount('totalConsumed', totalConsumed);
+    animateSummaryAmount('totalPending', totalPending);
+  },
+  { immediate: true }
+);
+
 onMounted(loadFinanceData);
+
+onBeforeUnmount(() => {
+  Object.keys(amountAnimationFrames).forEach((key) => {
+    if (amountAnimationFrames[key]) {
+      cancelAnimationFrame(amountAnimationFrames[key]);
+      amountAnimationFrames[key] = 0;
+    }
+  });
+});
 </script>

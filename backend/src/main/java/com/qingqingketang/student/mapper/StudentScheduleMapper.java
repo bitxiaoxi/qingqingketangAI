@@ -18,6 +18,29 @@ public interface StudentScheduleMapper extends BaseMapper<StudentSchedule> {
     @Select("SELECT * FROM student_schedules WHERE start_time < #{end} AND end_time > #{start} ORDER BY start_time LIMIT 1")
     StudentSchedule findFirstConflict(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
 
+    @Select("SELECT * FROM student_schedules WHERE start_time < #{end} AND end_time > #{start} ORDER BY start_time ASC, id ASC")
+    List<StudentSchedule> findConflicts(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    @Select("SELECT * FROM student_schedules WHERE start_time < #{end} AND end_time > #{start} AND id <> #{excludeId} ORDER BY start_time LIMIT 1")
+    StudentSchedule findFirstConflictExcludingId(@Param("start") LocalDateTime start,
+                                                 @Param("end") LocalDateTime end,
+                                                 @Param("excludeId") Long excludeId);
+
+    @Select({
+            "SELECT * FROM student_schedules",
+            "WHERE student_id = #{studentId} AND status = 'PLANNED'",
+            "ORDER BY start_time ASC, id ASC"
+    })
+    List<StudentSchedule> findPlannedByStudentId(@Param("studentId") Long studentId);
+
+    @Select({
+            "SELECT * FROM student_schedules",
+            "WHERE student_id = #{studentId} AND status = 'PLANNED'",
+            "ORDER BY start_time DESC, id DESC",
+            "LIMIT 1"
+    })
+    StudentSchedule findLastPlannedByStudentId(@Param("studentId") Long studentId);
+
     @Select({
             "SELECT s.*",
             "FROM student_schedules s",

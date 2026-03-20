@@ -25,6 +25,18 @@
             <strong>自然语言排课</strong>
             <small>一句话生成排课草案</small>
           </button>
+
+          <button type="button" class="planner-mode planner-mode--temporary" @click="openAdjustDialog('temporary')">
+            <span class="planner-mode__tag">临时加课</span>
+            <strong>补入一节课</strong>
+            <small>选定一个新时段补课，并自动移除末尾课程</small>
+          </button>
+
+          <button type="button" class="planner-mode planner-mode--reschedule" @click="openAdjustDialog('reschedule')">
+            <span class="planner-mode__tag">课程改时间</span>
+            <strong>平移既有课程</strong>
+            <small>把一节待上课程改到新的日期和时段</small>
+          </button>
         </div>
       </div>
     </el-card>
@@ -71,7 +83,47 @@
             <span>当前可排 {{ getSchedulableLessons(selectedCreateStudent) }} 节课</span>
           </div>
 
-          <div class="dialog-grid">
+          <div class="dialog-block__subhead">
+            <strong>排课关系</strong>
+            <small>{{ isSameClassCreateMode ? '加入已有班级，允许与指定学生的同一时段课程重叠。' : '默认按单独上课处理，冲突时会拦截。' }}</small>
+          </div>
+
+          <div class="create-mode-toggle">
+            <button
+              type="button"
+              class="create-mode-toggle__item"
+              :data-active="!isSameClassCreateMode"
+              @click="setCreateClassMode('solo')"
+            >
+              单独上课
+            </button>
+            <button
+              type="button"
+              class="create-mode-toggle__item"
+              :data-active="isSameClassCreateMode"
+              @click="setCreateClassMode('sameClass')"
+            >
+              加入同班
+            </button>
+          </div>
+
+          <el-form-item v-if="isSameClassCreateMode" label="同班学生" required>
+            <el-select v-model="createForm.sameClassStudentId" filterable placeholder="请选择同班学生">
+              <el-option
+                v-for="student in sameClassCandidates"
+                :key="student.id"
+                :label="`${student.name} · ${student.grade}`"
+                :value="student.id"
+              />
+            </el-select>
+          </el-form-item>
+
+          <div v-if="selectedSameClassStudent" class="dialog-inline-summary dialog-inline-summary--group">
+            <strong>与 {{ selectedSameClassStudent.name }} 同班上课</strong>
+            <span>系统会从首次课日期起自动沿用对方的班级时段</span>
+          </div>
+
+          <div v-if="!isSameClassCreateMode" class="dialog-grid">
             <el-form-item label="每周上课次数" required>
               <el-select v-model="createForm.weeklySessions">
                 <el-option
@@ -94,10 +146,22 @@
             </el-form-item>
           </div>
 
-          <p class="dialog-field-hint">每周上课次数会限制可选的上课日数量。</p>
+          <el-form-item v-else label="首次课日期" required>
+            <el-date-picker
+              v-model="createForm.startDate"
+              type="date"
+              format="YYYY-MM-DD"
+              value-format="YYYY-MM-DD"
+              placeholder="选择首次课日期"
+            />
+          </el-form-item>
+
+          <p class="dialog-field-hint">
+            {{ isSameClassCreateMode ? '加入同班后，会从首次课日期起自动沿用对方现有班级课表。' : '每周上课次数会限制可选的上课日数量。' }}
+          </p>
         </section>
 
-        <section class="dialog-block">
+        <section v-if="!isSameClassCreateMode" class="dialog-block">
           <div class="dialog-block__head">
             <h4>每周上课日</h4>
             <small>{{ weekdaySummary }}</small>
@@ -130,7 +194,7 @@
           </div>
         </section>
 
-        <section class="dialog-block">
+        <section v-if="!isSameClassCreateMode" class="dialog-block">
           <div class="dialog-block__head">
             <h4>上课时间</h4>
             <small>设置单节课标准时段</small>
@@ -159,11 +223,23 @@
           <p class="dialog-field-hint">建议按固定时段排课，后续查看课程表会更清晰。</p>
         </section>
 
+        <section v-else class="dialog-block">
+          <div class="dialog-block__head">
+            <h4>同班课表说明</h4>
+            <small>无需再手动选择每周次数、上课日和时间。</small>
+          </div>
+
+          <div class="weekday-auto-state weekday-auto-state--group">
+            <strong>{{ selectedSameClassStudent ? `沿用 ${selectedSameClassStudent.name} 的班级安排` : '先选择同班学生' }}</strong>
+            <span>{{ sameClassPreviewHint }}</span>
+          </div>
+        </section>
+
         <div class="schedule-preview">
           <span class="schedule-preview__eyebrow">预览</span>
           <strong>{{ createPreview }}</strong>
           <small v-if="selectedCreateStudent">
-            当前可排 {{ getSchedulableLessons(selectedCreateStudent) }} 节课
+            {{ selectedSameClassStudent ? `本次将加入 ${selectedSameClassStudent.name} 的同班课程` : `当前可排 ${getSchedulableLessons(selectedCreateStudent)} 节课` }}
           </small>
         </div>
       </el-form>
@@ -172,6 +248,204 @@
         <div class="dialog-footer">
           <el-button @click="createDialogVisible = false">取消</el-button>
           <el-button type="primary" :loading="creating" @click="submitCreateForm">生成课表</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="adjustDialogVisible"
+      :title="adjustDialogTitle"
+      width="860px"
+      destroy-on-close
+      class="schedule-dialog"
+    >
+      <div class="dialog-banner dialog-banner--adjust">
+        <div>
+          <strong>{{ adjustBannerTitle }}</strong>
+          <p>{{ adjustBannerDescription }}</p>
+        </div>
+        <div class="dialog-steps">
+          <span class="dialog-step">1. 选学生</span>
+          <span class="dialog-step">2. {{ adjustMiddleStepLabel }}</span>
+          <span class="dialog-step">3. 确认时间</span>
+        </div>
+      </div>
+
+      <el-form label-position="top" class="dialog-form">
+        <section class="dialog-block dialog-block--primary">
+          <div class="dialog-block__head">
+            <h4>调课对象</h4>
+            <small>先选学生，系统会读取该学生当前所有待上课程。</small>
+          </div>
+
+          <el-form-item label="学生" required>
+            <el-select v-model="adjustStudentId" filterable placeholder="请选择学生">
+              <el-option
+                v-for="student in students"
+                :key="student.id"
+                :label="`${student.name} · ${student.grade}`"
+                :value="student.id"
+              />
+            </el-select>
+          </el-form-item>
+
+          <div v-if="selectedAdjustStudent" class="dialog-inline-summary">
+            <strong>{{ selectedAdjustStudent.name }} · {{ selectedAdjustStudent.grade }}</strong>
+            <span>待上 {{ plannedSchedules.length }} 节 · 可排 {{ getSchedulableLessons(selectedAdjustStudent) }} 节</span>
+          </div>
+
+          <div class="adjustment-meta-grid">
+            <article class="adjustment-meta-card">
+              <span>当前待上课程</span>
+              <strong>{{ plannedSchedules.length }} 节</strong>
+              <small>这里只显示还未销课的正式课。</small>
+            </article>
+            <article class="adjustment-meta-card">
+              <span>课表最后一节</span>
+              <strong>{{ adjustLastSchedule ? formatScheduleOptionLabel(adjustLastSchedule) : '暂未生成正式课表' }}</strong>
+              <small>临时加课时，系统会自动移除这一节。</small>
+            </article>
+          </div>
+
+          <div v-if="adjustLoadingSchedules" class="adjustment-state">待上课程加载中…</div>
+          <div v-else-if="adjustStudentId && !plannedSchedules.length" class="adjustment-state adjustment-state--empty">
+            当前没有可调整的待上课程，请先为该学生生成正式课表。
+          </div>
+        </section>
+
+        <section v-if="adjustMode === 'temporary'" class="dialog-block">
+          <div class="dialog-block__head">
+            <h4>补入一节临时课</h4>
+            <small>适合节假日补课或临时插课，系统会自动把末尾课程腾出来。</small>
+          </div>
+
+          <el-form-item label="临时上课日期" required>
+            <el-date-picker
+              v-model="temporaryForm.lessonDate"
+              type="date"
+              format="YYYY-MM-DD"
+              value-format="YYYY-MM-DD"
+              placeholder="选择临时上课日期"
+            />
+          </el-form-item>
+
+          <div class="dialog-grid">
+            <el-form-item label="开始时间" required>
+              <el-time-picker
+                v-model="temporaryForm.startTime"
+                value-format="HH:mm"
+                format="HH:mm"
+                placeholder="开始时间"
+              />
+            </el-form-item>
+
+            <el-form-item label="结束时间" required>
+              <el-time-picker
+                v-model="temporaryForm.endTime"
+                value-format="HH:mm"
+                format="HH:mm"
+                placeholder="结束时间"
+              />
+            </el-form-item>
+          </div>
+
+          <div class="adjustment-swap-card">
+            <div class="adjustment-swap-card__block">
+              <span>补入课程</span>
+              <strong>{{ temporaryTargetLabel }}</strong>
+              <small>这节课会直接插入到你选定的时段。</small>
+            </div>
+            <div class="adjustment-swap-card__block">
+              <span>自动移除</span>
+              <strong>{{ adjustLastSchedule ? formatScheduleOptionLabel(adjustLastSchedule) : '暂未找到可替换课程' }}</strong>
+              <small>{{ adjustLastSchedule ? '默认移除当前课表最后一节待上课。' : '请先生成正式课表，再执行临时加课。' }}</small>
+            </div>
+          </div>
+
+          <p class="dialog-field-hint">系统会先校验时间冲突，再完成“补 1 节、减 1 节”的替换动作。</p>
+        </section>
+
+        <section v-else class="dialog-block">
+          <div class="dialog-block__head">
+            <h4>把一节课改到新时间</h4>
+            <small>适合学生请假、临时顺延或与家长重新约课。</small>
+          </div>
+
+          <el-form-item label="待调整课程" required>
+            <el-select
+              v-model="rescheduleForm.scheduleId"
+              filterable
+              placeholder="请选择要改时间的课程"
+              :loading="adjustLoadingSchedules"
+            >
+              <el-option
+                v-for="schedule in plannedSchedules"
+                :key="schedule.id"
+                :label="formatScheduleOptionLabel(schedule)"
+                :value="schedule.id"
+              />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="调整后日期" required>
+            <el-date-picker
+              v-model="rescheduleForm.lessonDate"
+              type="date"
+              format="YYYY-MM-DD"
+              value-format="YYYY-MM-DD"
+              placeholder="选择新的上课日期"
+            />
+          </el-form-item>
+
+          <div class="dialog-grid">
+            <el-form-item label="开始时间" required>
+              <el-time-picker
+                v-model="rescheduleForm.startTime"
+                value-format="HH:mm"
+                format="HH:mm"
+                placeholder="新的开始时间"
+              />
+            </el-form-item>
+
+            <el-form-item label="结束时间" required>
+              <el-time-picker
+                v-model="rescheduleForm.endTime"
+                value-format="HH:mm"
+                format="HH:mm"
+                placeholder="新的结束时间"
+              />
+            </el-form-item>
+          </div>
+
+          <div class="adjustment-swap-card">
+            <div class="adjustment-swap-card__block">
+              <span>当前时间</span>
+              <strong>{{ selectedRescheduleSchedule ? formatScheduleOptionLabel(selectedRescheduleSchedule) : '请选择一节课程' }}</strong>
+              <small>只能调整待上课程，已销课程请先撤销销课。</small>
+            </div>
+            <div class="adjustment-swap-card__block">
+              <span>调整后</span>
+              <strong>{{ rescheduleTargetLabel }}</strong>
+              <small>系统会检查和其他课程是否冲突。</small>
+            </div>
+          </div>
+
+          <p class="dialog-field-hint">课程改时间不会新增或减少课时，只会更新这节课的具体落位。</p>
+        </section>
+
+        <div class="schedule-preview schedule-preview--adjust">
+          <span class="schedule-preview__eyebrow">操作预览</span>
+          <strong>{{ adjustMode === 'temporary' ? temporaryPreview : reschedulePreview }}</strong>
+          <small>{{ adjustMode === 'temporary' ? temporaryPreviewHint : reschedulePreviewHint }}</small>
+        </div>
+      </el-form>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="adjustDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="adjustSubmitting" @click="submitAdjustAction">
+            {{ adjustSubmitLabel }}
+          </el-button>
         </div>
       </template>
     </el-dialog>
@@ -248,24 +522,49 @@ import { frequencyOptions, scheduleAssistantExamples, weekdayOptions } from '../
 import { api } from '../services/api';
 import {
   buildWeekdaySummary,
+  formatClock,
   formatDateParam,
+  formatLongDate,
   formatParsedIntentSummary,
+  formatTimeRange,
   normalizeError
 } from '../utils/format';
 
 const route = useRoute();
+const getRouteStudentId = () => (route.query.studentId ? Number(route.query.studentId) : null);
 
 const loading = ref(false);
 const error = ref('');
 const students = ref([]);
 const creating = ref(false);
 const createDialogVisible = ref(false);
+const createClassMode = ref('solo');
+const adjustDialogVisible = ref(false);
+const adjustMode = ref('temporary');
+const adjustStudentId = ref(getRouteStudentId());
+const adjustLoadingSchedules = ref(false);
+const adjustSubmitting = ref(false);
+const plannedSchedules = ref([]);
+const sameClassReferenceSchedules = ref([]);
+const loadingSameClassSchedules = ref(false);
 const assistantDrawerVisible = ref(false);
 const createForm = reactive({
-  studentId: route.query.studentId ? Number(route.query.studentId) : null,
+  studentId: getRouteStudentId(),
+  sameClassStudentId: null,
   weeklySessions: 1,
   weekdays: [weekdayOptions[0].value],
   startDate: formatDateParam(new Date()),
+  startTime: '19:00',
+  endTime: '20:30'
+});
+const temporaryForm = reactive({
+  lessonDate: formatDateParam(new Date()),
+  startTime: '19:00',
+  endTime: '20:30'
+});
+const rescheduleForm = reactive({
+  scheduleId: null,
+  lessonDate: formatDateParam(new Date()),
   startTime: '19:00',
   endTime: '20:30'
 });
@@ -326,6 +625,115 @@ const loadStudents = async () => {
   }
 };
 
+const formatScheduleOptionLabel = (schedule) => {
+  if (!schedule?.startTime || !schedule?.endTime) {
+    return '时间待定';
+  }
+  return `${formatLongDate(schedule.startTime)} ${formatTimeRange(schedule.startTime, schedule.endTime)}`;
+};
+
+const buildSlotLabel = (lessonDate, startTime, endTime) => {
+  if (!lessonDate || !startTime || !endTime) {
+    return '时间待定';
+  }
+  return `${lessonDate} ${startTime}-${endTime}`;
+};
+
+const getWeekdayValue = (value) => {
+  const day = new Date(value).getDay();
+  return day === 0 ? 7 : day;
+};
+
+const buildSameClassSlotTemplates = (schedules) => {
+  const templateMap = new Map();
+  schedules.forEach((schedule) => {
+    if (!schedule?.startTime || !schedule?.endTime) {
+      return;
+    }
+    const weekday = getWeekdayValue(schedule.startTime);
+    const startClock = formatClock(schedule.startTime);
+    const endClock = formatClock(schedule.endTime);
+    const subject = schedule.subject ?? '';
+    const key = `${weekday}-${startClock}-${endClock}-${subject}`;
+    const existing = templateMap.get(key);
+    if (existing) {
+      existing.count += 1;
+      return;
+    }
+    templateMap.set(key, {
+      key,
+      weekday,
+      weekdayLabel: weekdayOptions.find((option) => option.value === weekday)?.label ?? `周${weekday}`,
+      startClock,
+      endClock,
+      subject,
+      count: 1
+    });
+  });
+
+  const uniqueTemplates = [...templateMap.values()].sort((left, right) => {
+    if (left.weekday !== right.weekday) {
+      return left.weekday - right.weekday;
+    }
+    return left.startClock.localeCompare(right.startClock);
+  });
+  const recurringTemplates = uniqueTemplates.filter((template) => template.count >= 2);
+  return recurringTemplates.length ? recurringTemplates : uniqueTemplates;
+};
+
+const applyScheduleTimeDefaults = (schedule) => {
+  if (!schedule?.startTime || !schedule?.endTime) {
+    return;
+  }
+  temporaryForm.startTime = formatClock(schedule.startTime);
+  temporaryForm.endTime = formatClock(schedule.endTime);
+};
+
+const loadPlannedSchedules = async (studentId = adjustStudentId.value) => {
+  if (!studentId) {
+    plannedSchedules.value = [];
+    rescheduleForm.scheduleId = null;
+    return;
+  }
+
+  adjustLoadingSchedules.value = true;
+  try {
+    const scheduleList = await api.listStudentPlannedSchedules(studentId);
+    plannedSchedules.value = Array.isArray(scheduleList) ? scheduleList : [];
+    if (!plannedSchedules.value.some((schedule) => schedule.id === rescheduleForm.scheduleId)) {
+      rescheduleForm.scheduleId = plannedSchedules.value[0]?.id ?? null;
+    }
+    applyScheduleTimeDefaults(plannedSchedules.value[plannedSchedules.value.length - 1] ?? null);
+  } catch (requestError) {
+    plannedSchedules.value = [];
+    rescheduleForm.scheduleId = null;
+    ElMessage.error(normalizeError(requestError, '待上课程加载失败'));
+  } finally {
+    adjustLoadingSchedules.value = false;
+  }
+};
+
+const loadSameClassReferenceSchedules = async (studentId = createForm.sameClassStudentId) => {
+  if (!studentId) {
+    sameClassReferenceSchedules.value = [];
+    return;
+  }
+
+  loadingSameClassSchedules.value = true;
+  try {
+    const scheduleList = await api.listStudentPlannedSchedules(studentId);
+    if (studentId !== createForm.sameClassStudentId) {
+      return;
+    }
+    sameClassReferenceSchedules.value = Array.isArray(scheduleList) ? scheduleList : [];
+  } catch (requestError) {
+    sameClassReferenceSchedules.value = [];
+    ElMessage.error(normalizeError(requestError, '同班课表读取失败'));
+  } finally {
+    loadingSameClassSchedules.value = false;
+  }
+};
+
 const isDailySchedule = computed(() => createForm.weeklySessions === allWeekdayValues.length);
 const normalizedCreateWeekdays = computed(() => {
   if (isDailySchedule.value) {
@@ -349,11 +757,53 @@ const remainingWeekdaySlots = computed(() => {
 const selectedCreateStudent = computed(() => {
   return students.value.find((student) => student.id === createForm.studentId) ?? null;
 });
+const isSameClassCreateMode = computed(() => createClassMode.value === 'sameClass');
+const sameClassCandidates = computed(() => {
+  return students.value.filter((student) => student.id !== createForm.studentId);
+});
+const selectedSameClassStudent = computed(() => {
+  return students.value.find((student) => student.id === createForm.sameClassStudentId) ?? null;
+});
+const sameClassSlotTemplates = computed(() => {
+  return buildSameClassSlotTemplates(sameClassReferenceSchedules.value);
+});
+const sameClassSlotSummary = computed(() => {
+  if (!selectedSameClassStudent.value) {
+    return '未选择同班学生';
+  }
+  if (loadingSameClassSchedules.value) {
+    return '正在读取班级时段';
+  }
+  if (!sameClassSlotTemplates.value.length) {
+    return '暂未读取到可沿用的班级时段';
+  }
+  return sameClassSlotTemplates.value
+    .map((template) => `${template.weekdayLabel} ${template.startClock}-${template.endClock}`)
+    .join('、');
+});
+const selectedAdjustStudent = computed(() => {
+  return students.value.find((student) => student.id === adjustStudentId.value) ?? null;
+});
+const adjustLastSchedule = computed(() => {
+  return plannedSchedules.value[plannedSchedules.value.length - 1] ?? null;
+});
+const selectedRescheduleSchedule = computed(() => {
+  return plannedSchedules.value.find((schedule) => schedule.id === rescheduleForm.scheduleId) ?? null;
+});
 
 const createPreview = computed(() => {
   const studentLabel = selectedCreateStudent.value
     ? `${selectedCreateStudent.value.name} · ${selectedCreateStudent.value.grade}`
     : '未选择学生';
+  if (isSameClassCreateMode.value) {
+    const firstLessonLabel = createForm.startDate
+      ? `从 ${createForm.startDate} 起`
+      : '未设置首次课日期';
+    const classLabel = selectedSameClassStudent.value
+      ? `加入 ${selectedSameClassStudent.value.name} 的同班课程`
+      : '未选择同班学生';
+    return `${studentLabel} · ${classLabel} · ${sameClassSlotSummary.value} · ${firstLessonLabel}`;
+  }
   const weekdays = weekdayOptions
     .filter((option) => normalizedCreateWeekdays.value.includes(option.value))
     .map((option) => option.label)
@@ -364,7 +814,81 @@ const createPreview = computed(() => {
   const firstLessonLabel = createForm.startDate
     ? `首次课 ${createForm.startDate}`
     : '未设置首次课日期';
-  return `${studentLabel} · ${weekdays} · ${timeRange} · ${firstLessonLabel}`;
+  const classLabel = selectedSameClassStudent.value
+    ? `与 ${selectedSameClassStudent.value.name} 同班`
+    : '单独上课';
+  return `${studentLabel} · ${classLabel} · ${weekdays} · ${timeRange} · ${firstLessonLabel}`;
+});
+const sameClassPreviewHint = computed(() => {
+  if (!selectedSameClassStudent.value) {
+    return '选择同班学生后，系统会直接沿用对方已排好的班级时段。';
+  }
+  if (loadingSameClassSchedules.value) {
+    return '正在读取对方班级课表，马上展示具体时段。';
+  }
+  if (!sameClassSlotTemplates.value.length) {
+    return '当前还没有读取到可沿用的班级时段，请先确认对方已有待上课表。';
+  }
+  return `从 ${createForm.startDate || '所选日期'} 起，系统会按 ${sameClassSlotSummary.value} 自动补入同班课程。`;
+});
+const temporaryTargetLabel = computed(() => {
+  return buildSlotLabel(temporaryForm.lessonDate, temporaryForm.startTime, temporaryForm.endTime);
+});
+const rescheduleTargetLabel = computed(() => {
+  return buildSlotLabel(rescheduleForm.lessonDate, rescheduleForm.startTime, rescheduleForm.endTime);
+});
+const temporaryPreview = computed(() => {
+  const studentLabel = selectedAdjustStudent.value
+    ? `${selectedAdjustStudent.value.name} · ${selectedAdjustStudent.value.grade}`
+    : '未选择学生';
+  const removedLabel = adjustLastSchedule.value
+    ? formatScheduleOptionLabel(adjustLastSchedule.value)
+    : '暂未找到可替换课程';
+  return `${studentLabel} · 补入 ${temporaryTargetLabel.value} · 末尾移除 ${removedLabel}`;
+});
+const temporaryPreviewHint = computed(() => {
+  if (!selectedAdjustStudent.value) {
+    return '先选学生，再设置临时补课时间。';
+  }
+  if (!adjustLastSchedule.value) {
+    return '该学生当前没有待上课程，无法执行“补 1 节、减 1 节”的替换。';
+  }
+  return '系统会保持总课时不变，并自动校验是否与其他课程冲突。';
+});
+const reschedulePreview = computed(() => {
+  const studentLabel = selectedAdjustStudent.value
+    ? `${selectedAdjustStudent.value.name} · ${selectedAdjustStudent.value.grade}`
+    : '未选择学生';
+  const sourceLabel = selectedRescheduleSchedule.value
+    ? formatScheduleOptionLabel(selectedRescheduleSchedule.value)
+    : '未选择待调整课程';
+  return `${studentLabel} · 从 ${sourceLabel} 调整到 ${rescheduleTargetLabel.value}`;
+});
+const reschedulePreviewHint = computed(() => {
+  if (!selectedAdjustStudent.value) {
+    return '先选学生，再选择需要改时间的课程。';
+  }
+  if (!selectedRescheduleSchedule.value) {
+    return '请选择一节待上课程作为改时间对象。';
+  }
+  return '改时间只会调整这一节课的日期和时段，不会新增或减少课时。';
+});
+const adjustDialogTitle = computed(() => {
+  return adjustMode.value === 'temporary' ? '临时加课' : '课程改时间';
+});
+const adjustBannerTitle = computed(() => {
+  return adjustMode.value === 'temporary' ? '临时加课，不改总课时' : '课程改时间，直接更新落位';
+});
+const adjustBannerDescription = computed(() => {
+  return adjustMode.value === 'temporary'
+    ? '补一节临时课时，系统会自动移除末尾课程，适合补课和临时插课。'
+    : '把一节待上课程直接改到新的日期和时段，适合请假顺延或重新约课。';
+});
+const adjustMiddleStepLabel = computed(() => {
+  return adjustMode.value === 'temporary' ? '设时段' : '选课程';
+});
+const adjustSubmitLabel = computed(() => {
+  return adjustMode.value === 'temporary' ? '确认临时加课' : '确认改时间';
 });
 
 const assistantPlaceholder = computed(() => {
@@ -384,17 +908,49 @@ const assistantPlaceholder = computed(() => {
 });
 
 const resetCreateForm = (studentId = null) => {
+  createClassMode.value = 'solo';
   createForm.studentId = studentId;
+  createForm.sameClassStudentId = null;
   createForm.weeklySessions = 1;
   createForm.weekdays = [weekdayOptions[0].value];
   createForm.startDate = formatDateParam(new Date());
   createForm.startTime = '19:00';
   createForm.endTime = '20:30';
+  sameClassReferenceSchedules.value = [];
+  loadingSameClassSchedules.value = false;
 };
 
-const openCreateDialog = (studentId = route.query.studentId ? Number(route.query.studentId) : null) => {
+const setCreateClassMode = (mode) => {
+  createClassMode.value = mode;
+  if (mode !== 'sameClass') {
+    createForm.sameClassStudentId = null;
+    sameClassReferenceSchedules.value = [];
+    loadingSameClassSchedules.value = false;
+  }
+};
+
+const resetAdjustForms = (studentId = getRouteStudentId(), mode = 'temporary') => {
+  adjustMode.value = mode;
+  adjustStudentId.value = studentId;
+  plannedSchedules.value = [];
+  temporaryForm.lessonDate = formatDateParam(new Date());
+  temporaryForm.startTime = '19:00';
+  temporaryForm.endTime = '20:30';
+  rescheduleForm.scheduleId = null;
+  rescheduleForm.lessonDate = formatDateParam(new Date());
+  rescheduleForm.startTime = '19:00';
+  rescheduleForm.endTime = '20:30';
+};
+
+const openCreateDialog = (studentId = getRouteStudentId()) => {
   resetCreateForm(studentId);
   createDialogVisible.value = true;
+};
+
+const openAdjustDialog = async (mode = 'temporary', studentId = getRouteStudentId()) => {
+  resetAdjustForms(studentId, mode);
+  adjustDialogVisible.value = true;
+  await loadPlannedSchedules(studentId);
 };
 
 const toggleWeekday = (weekday) => {
@@ -419,23 +975,36 @@ const toggleWeekday = (weekday) => {
 };
 
 const submitCreateForm = async () => {
-  if (!createForm.studentId || !createForm.startDate || !createForm.startTime || !createForm.endTime) {
+  if (!createForm.studentId || !createForm.startDate) {
     ElMessage.error('请完整填写排课信息');
     return;
   }
-  if (!isDailySchedule.value && normalizedCreateWeekdays.value.length !== createForm.weeklySessions) {
+  if (isSameClassCreateMode.value && !createForm.sameClassStudentId) {
+    ElMessage.error('请选择要加入同班的学生');
+    return;
+  }
+  if (!isSameClassCreateMode.value && (!createForm.startTime || !createForm.endTime)) {
+    ElMessage.error('请完整填写排课信息');
+    return;
+  }
+  if (!isSameClassCreateMode.value && !isDailySchedule.value && normalizedCreateWeekdays.value.length !== createForm.weeklySessions) {
     ElMessage.error(`每周 ${createForm.weeklySessions} 次课，请选择 ${createForm.weeklySessions} 个上课日`);
     return;
   }
 
   creating.value = true;
   try {
-    const generated = await api.generateSchedules(createForm.studentId, {
-      weekdays: normalizedCreateWeekdays.value,
-      startDate: createForm.startDate,
-      startTime: createForm.startTime,
-      endTime: createForm.endTime
-    });
+    const payload = {
+      sameClassStudentId: isSameClassCreateMode.value ? createForm.sameClassStudentId : null,
+      startDate: createForm.startDate
+    };
+    if (!isSameClassCreateMode.value) {
+      payload.weekdays = normalizedCreateWeekdays.value;
+      payload.startTime = createForm.startTime;
+      payload.endTime = createForm.endTime;
+    }
+    const generated = await api.generateSchedules(createForm.studentId, payload);
+    await loadStudents();
     createDialogVisible.value = false;
     ElMessage.success(`已生成 ${Array.isArray(generated) ? generated.length : 0} 节课`);
   } catch (requestError) {
@@ -443,6 +1012,69 @@ const submitCreateForm = async () => {
   } finally {
     creating.value = false;
   }
+};
+
+const submitTemporaryLesson = async () => {
+  if (!adjustStudentId.value || !temporaryForm.lessonDate || !temporaryForm.startTime || !temporaryForm.endTime) {
+    ElMessage.error('请完整填写临时加课时间');
+    return;
+  }
+  if (!adjustLastSchedule.value) {
+    ElMessage.error('当前没有可替换的待上课程，请先生成正式课表');
+    return;
+  }
+
+  adjustSubmitting.value = true;
+  try {
+    const result = await api.createTemporaryLesson(adjustStudentId.value, {
+      lessonDate: temporaryForm.lessonDate,
+      startTime: temporaryForm.startTime,
+      endTime: temporaryForm.endTime
+    });
+    await loadStudents();
+    await loadPlannedSchedules(adjustStudentId.value);
+    adjustDialogVisible.value = false;
+    ElMessage.success(result?.message ?? '临时加课已处理');
+  } catch (requestError) {
+    ElMessage.error(normalizeError(requestError, '临时加课失败'));
+  } finally {
+    adjustSubmitting.value = false;
+  }
+};
+
+const submitReschedule = async () => {
+  if (!adjustStudentId.value || !rescheduleForm.scheduleId) {
+    ElMessage.error('请先选择需要改时间的课程');
+    return;
+  }
+  if (!rescheduleForm.lessonDate || !rescheduleForm.startTime || !rescheduleForm.endTime) {
+    ElMessage.error('请完整填写新的上课时间');
+    return;
+  }
+
+  adjustSubmitting.value = true;
+  try {
+    await api.rescheduleSchedule(rescheduleForm.scheduleId, {
+      lessonDate: rescheduleForm.lessonDate,
+      startTime: rescheduleForm.startTime,
+      endTime: rescheduleForm.endTime
+    });
+    await loadPlannedSchedules(adjustStudentId.value);
+    adjustDialogVisible.value = false;
+    ElMessage.success('课程时间已更新');
+  } catch (requestError) {
+    ElMessage.error(normalizeError(requestError, '课程改时间失败'));
+  } finally {
+    adjustSubmitting.value = false;
+  }
+};
+
+const submitAdjustAction = async () => {
+  if (adjustMode.value === 'temporary') {
+    await submitTemporaryLesson();
+    return;
+  }
+  await submitReschedule();
 };
 
 const openAssistantDrawer = async () => {
@@ -502,6 +1134,7 @@ const submitAssistant = async () => {
     await scrollAssistantThread();
 
     if (data?.scheduled) {
+      await loadStudents();
       ElMessage.success(`已生成 ${data.scheduledCount ?? 0} 节课`);
     }
   } catch (requestError) {
@@ -534,10 +1167,54 @@ watch(
 );
 
 watch(
+  () => createForm.studentId,
+  (studentId) => {
+    if (studentId && studentId === createForm.sameClassStudentId) {
+      createForm.sameClassStudentId = null;
+    }
+  }
+);
+
+watch(
+  () => [createDialogVisible.value, createClassMode.value, createForm.sameClassStudentId],
+  async ([dialogVisible, createMode, sameClassStudentId]) => {
+    if (!dialogVisible || createMode !== 'sameClass' || !sameClassStudentId) {
+      sameClassReferenceSchedules.value = [];
+      loadingSameClassSchedules.value = false;
+      return;
+    }
+    await loadSameClassReferenceSchedules(sameClassStudentId);
+  }
+);
+
+watch(
+  adjustStudentId,
+  async (studentId) => {
+    if (!adjustDialogVisible.value) {
+      return;
+    }
+    await loadPlannedSchedules(studentId);
+  }
+);
+
+watch(
+  () => rescheduleForm.scheduleId,
+  (scheduleId) => {
+    const schedule = plannedSchedules.value.find((item) => item.id === scheduleId);
+    if (!schedule?.startTime || !schedule?.endTime) {
+      return;
+    }
+    rescheduleForm.lessonDate = formatDateParam(schedule.startTime);
+    rescheduleForm.startTime = formatClock(schedule.startTime);
+    rescheduleForm.endTime = formatClock(schedule.endTime);
+  }
+);
+
+watch(
   () => route.query.action,
   (action) => {
     if (action === 'create') {
-      openCreateDialog(route.query.studentId ? Number(route.query.studentId) : null);
+      openCreateDialog(getRouteStudentId());
     }
   },
   { immediate: true }
@@ -547,6 +1224,7 @@ watch(
   () => route.query.studentId,
   (studentId) => {
     createForm.studentId = studentId ? Number(studentId) : null;
+    adjustStudentId.value = studentId ? Number(studentId) : null;
   },
   { immediate: true }
 );
@@ -675,6 +1353,16 @@ onMounted(async () => {
   background: linear-gradient(145deg, rgba(255, 237, 213, 0.78), rgba(255, 255, 255, 0.96));
 }
 
+.planner-mode--temporary {
+  border-color: rgba(110, 231, 183, 0.78);
+  background: linear-gradient(145deg, rgba(220, 252, 231, 0.84), rgba(255, 255, 255, 0.96));
+}
+
+.planner-mode--reschedule {
+  border-color: rgba(196, 181, 253, 0.78);
+  background: linear-gradient(145deg, rgba(237, 233, 254, 0.84), rgba(255, 255, 255, 0.96));
+}
+
 .schedule-dialog :deep(.el-dialog) {
   border-radius: 28px;
 }
@@ -709,6 +1397,11 @@ onMounted(async () => {
   display: block;
   margin-bottom: 4px;
   font-size: 18px;
+}
+
+.dialog-banner--adjust {
+  border-color: rgba(167, 243, 208, 0.9);
+  background: linear-gradient(135deg, rgba(236, 253, 245, 0.98), rgba(255, 255, 255, 0.94));
 }
 
 .dialog-banner p {
@@ -772,6 +1465,53 @@ onMounted(async () => {
   line-height: 1.6;
 }
 
+.dialog-block__subhead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 2px;
+  margin-bottom: 12px;
+}
+
+.dialog-block__subhead strong {
+  font-size: 14px;
+  color: var(--app-text-primary);
+}
+
+.dialog-block__subhead small {
+  color: var(--app-text-secondary);
+  line-height: 1.6;
+}
+
+.create-mode-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.create-mode-toggle__item {
+  padding: 12px 14px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+
+.create-mode-toggle__item[data-active='true'] {
+  border-color: rgba(59, 130, 246, 0.36);
+  background: rgba(219, 234, 254, 0.82);
+  box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.72);
+  color: var(--app-primary);
+}
+
+.create-mode-toggle__item:hover {
+  transform: translateY(-1px);
+}
+
 .dialog-inline-summary {
   display: flex;
   align-items: center;
@@ -794,6 +1534,63 @@ onMounted(async () => {
   color: #1d4ed8;
   font-size: 12px;
   white-space: nowrap;
+}
+
+.dialog-inline-summary--group {
+  background: rgba(236, 253, 245, 0.92);
+  border-color: rgba(167, 243, 208, 0.92);
+}
+
+.dialog-inline-summary--group span {
+  color: #047857;
+}
+
+.adjustment-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.adjustment-meta-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(226, 232, 240, 0.88);
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.adjustment-meta-card span {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+
+.adjustment-meta-card strong {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--app-text-primary);
+}
+
+.adjustment-meta-card small {
+  color: var(--app-text-tertiary);
+  line-height: 1.6;
+}
+
+.adjustment-state {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px dashed rgba(191, 219, 254, 0.92);
+  background: rgba(239, 246, 255, 0.72);
+  color: #1d4ed8;
+  font-size: 13px;
+}
+
+.adjustment-state--empty {
+  border-color: rgba(253, 186, 116, 0.88);
+  background: rgba(255, 247, 237, 0.92);
+  color: #c2410c;
 }
 
 .dialog-grid {
@@ -828,6 +1625,15 @@ onMounted(async () => {
   color: var(--app-text-secondary);
   font-size: 12px;
   line-height: 1.6;
+}
+
+.weekday-auto-state--group {
+  border-color: rgba(167, 243, 208, 0.92);
+  background: linear-gradient(145deg, rgba(236, 253, 245, 0.94), rgba(255, 255, 255, 0.98));
+}
+
+.weekday-auto-state--group strong {
+  color: #047857;
 }
 
 .weekday-chip {
@@ -887,6 +1693,40 @@ onMounted(async () => {
   line-height: 1.7;
 }
 
+.adjustment-swap-card {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.adjustment-swap-card__block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 126px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(191, 219, 254, 0.88);
+  background: linear-gradient(145deg, rgba(239, 246, 255, 0.92), rgba(255, 255, 255, 0.96));
+}
+
+.adjustment-swap-card__block span {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+
+.adjustment-swap-card__block strong {
+  color: #0f172a;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.adjustment-swap-card__block small {
+  color: var(--app-text-tertiary);
+  line-height: 1.6;
+}
+
 .schedule-preview {
   padding: 18px;
   border: 1px solid rgba(191, 219, 254, 0.9);
@@ -905,6 +1745,10 @@ onMounted(async () => {
 .schedule-preview small {
   color: rgba(255, 255, 255, 0.68);
   line-height: 1.7;
+}
+
+.schedule-preview--adjust {
+  margin-top: 2px;
 }
 
 .dialog-footer {
@@ -1045,16 +1889,23 @@ onMounted(async () => {
   .assistant-actions,
   .planner-toolbar,
   .dialog-banner,
-  .dialog-inline-summary {
+  .dialog-inline-summary,
+  .dialog-block__subhead {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .adjustment-meta-grid,
+  .adjustment-swap-card {
+    grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 900px) {
   .dialog-grid,
   .planner-mode-grid,
-  .weekday-chip-grid {
+  .weekday-chip-grid,
+  .create-mode-toggle {
     grid-template-columns: 1fr;
   }
 

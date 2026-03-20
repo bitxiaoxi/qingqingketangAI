@@ -39,7 +39,9 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -117,38 +119,55 @@ public class StudentScheduleController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该学生剩余课时已全部排入课表，请先调整现有排课或新增课时");
         }
 
-        List<Integer> weekdayValues = resolveWeekdays(request);
         LocalDate startDate = resolveStartDate(request);
-        LocalTime startTime = request.getStartTime();
-        LocalTime endTime = request.getEndTime();
-        if (!endTime.isAfter(startTime)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "结束时间需晚于开始时间");
-        }
+        Student sameClassStudent = resolveSameClassStudent(studentId, request.getSameClassStudentId());
 
         List<StudentSchedule> schedules = new ArrayList<>();
         LocalDateTime now = LocalDateTime.now();
-        List<LocalDate> lessonDates = generateLessonDates(startDate, weekdayValues, schedulableLessons);
-        for (LocalDate currentDate : lessonDates) {
-            StudentSchedule schedule = new StudentSchedule();
-            schedule.setStudentId(studentId);
-            schedule.setSubject(DEFAULT_SUBJECT);
-            LocalDateTime slotStart = LocalDateTime.of(currentDate, startTime);
-            LocalDateTime slotEnd = LocalDateTime.of(currentDate, endTime);
-            StudentSchedule conflict = studentScheduleMapper.findFirstConflict(slotStart, slotEnd);
-            if (conflict != null) {
-                Student holder = studentService.getById(conflict.getStudentId());
-                String holderName = holder != null ? holder.getName() : "其他学生";
-                String conflictDate = conflict.getStartTime().format(DATE_FORMATTER);
-                String conflictRange = conflict.getStartTime().format(TIME_FORMATTER) + " - "
-                        + conflict.getEndTime().format(TIME_FORMATTER);
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        String.format("与 %s 的课程冲突（%s %s），请调整排课时间", holderName, conflictDate, conflictRange));
+        if (sameClassStudent != null) {
+            List<WeeklySlotTemplate> slotTemplates = resolveSameClassTemplates(sameClassStudent);
+            List<GeneratedSlot> generatedSlots = generateSameClassSlots(
+                    sameClassStudent,
+                    startDate,
+                    slotTemplates,
+                    schedulableLessons);
+            for (GeneratedSlot generatedSlot : generatedSlots) {
+                validateNoUnexpectedSameClassConflict(studentId, generatedSlot.getStartTime(), generatedSlot.getEndTime());
+
+                StudentSchedule schedule = new StudentSchedule();
+                schedule.setStudentId(studentId);
+                schedule.setSubject(StringUtils.hasText(generatedSlot.getSubject()) ? generatedSlot.getSubject() : DEFAULT_SUBJECT);
+                schedule.setStartTime(generatedSlot.getStartTime());
+                schedule.setEndTime(generatedSlot.getEndTime());
+                schedule.setStatus(STATUS_PLANNED);
+                schedule.setCreatedAt(now);
+                schedules.add(schedule);
             }
-            schedule.setStartTime(slotStart);
-            schedule.setEndTime(slotEnd);
-            schedule.setStatus(STATUS_PLANNED);
-            schedule.setCreatedAt(now);
-            schedules.add(schedule);
+        } else {
+            List<Integer> weekdayValues = resolveWeekdays(request);
+            LocalTime startTime = requireStartTime(request);
+            LocalTime endTime = requireEndTime(request);
+            if (!endTime.isAfter(startTime)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "结束时间需晚于开始时间");
+            }
+
+            List<LocalDate> lessonDates = generateLessonDates(startDate, weekdayValues, schedulableLessons);
+            for (LocalDate currentDate : lessonDates) {
+                StudentSchedule schedule = new StudentSchedule();
+                schedule.setStudentId(studentId);
+                schedule.setSubject(DEFAULT_SUBJECT);
+                LocalDateTime slotStart = LocalDateTime.of(currentDate, startTime);
+                LocalDateTime slotEnd = LocalDateTime.of(currentDate, endTime);
+                StudentSchedule conflict = studentScheduleMapper.findFirstConflict(slotStart, slotEnd);
+                if (conflict != null) {
+                    throw buildConflictException(conflict);
+                }
+                schedule.setStartTime(slotStart);
+                schedule.setEndTime(slotEnd);
+                schedule.setStatus(STATUS_PLANNED);
+                schedule.setCreatedAt(now);
+                schedules.add(schedule);
+            }
         }
 
         studentScheduleService.saveBatch(schedules);
@@ -205,6 +224,123 @@ public class StudentScheduleController {
         return dates;
     }
 
+    private LocalTime requireStartTime(ScheduleGenerateRequest request) {
+        if (request == null || request.getStartTime() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择开始时间");
+        }
+        return request.getStartTime();
+    }
+
+    private LocalTime requireEndTime(ScheduleGenerateRequest request) {
+        if (request == null || request.getEndTime() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择结束时间");
+        }
+        return request.getEndTime();
+    }
+
+    private Student resolveSameClassStudent(Long studentId, Long sameClassStudentId) {
+        if (sameClassStudentId == null) {
+            return null;
+        }
+        if (sameClassStudentId.equals(studentId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不能把学生加入自己的同班课程，请重新选择");
+        }
+        return requireStudent(sameClassStudentId);
+    }
+
+    private List<WeeklySlotTemplate> resolveSameClassTemplates(Student sameClassStudent) {
+        if (sameClassStudent == null) {
+            return Collections.emptyList();
+        }
+        List<StudentSchedule> plannedSchedules = studentScheduleMapper.findPlannedByStudentId(sameClassStudent.getId());
+        if (CollectionUtils.isEmpty(plannedSchedules)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    String.format("%s 当前还没有可参考的待上课表，请先为该学生生成正式课表", sameClassStudent.getName()));
+        }
+
+        Map<String, SlotTemplateCounter> templateCounterMap = new LinkedHashMap<>();
+        for (StudentSchedule schedule : plannedSchedules) {
+            if (schedule.getStartTime() == null || schedule.getEndTime() == null) {
+                continue;
+            }
+            WeeklySlotTemplate template = WeeklySlotTemplate.fromSchedule(schedule);
+            String key = template.uniqueKey();
+            SlotTemplateCounter counter = templateCounterMap.get(key);
+            if (counter == null) {
+                templateCounterMap.put(key, new SlotTemplateCounter(template, 1));
+            } else {
+                counter.increment();
+            }
+        }
+
+        List<WeeklySlotTemplate> recurringTemplates = templateCounterMap.values().stream()
+                .filter(counter -> counter.getCount() >= 2)
+                .map(SlotTemplateCounter::getTemplate)
+                .sorted(Comparator.comparingInt(WeeklySlotTemplate::getWeekday)
+                        .thenComparing(WeeklySlotTemplate::getStartTime))
+                .collect(Collectors.toList());
+        if (!recurringTemplates.isEmpty()) {
+            return recurringTemplates;
+        }
+
+        return templateCounterMap.values().stream()
+                .map(SlotTemplateCounter::getTemplate)
+                .sorted(Comparator.comparingInt(WeeklySlotTemplate::getWeekday)
+                        .thenComparing(WeeklySlotTemplate::getStartTime))
+                .collect(Collectors.toList());
+    }
+
+    private List<GeneratedSlot> generateSameClassSlots(Student sameClassStudent,
+                                                       LocalDate startDate,
+                                                       List<WeeklySlotTemplate> slotTemplates,
+                                                       int totalLessons) {
+        if (sameClassStudent == null || CollectionUtils.isEmpty(slotTemplates)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "未找到可沿用的同班上课时间");
+        }
+
+        List<GeneratedSlot> generatedSlots = new ArrayList<>();
+        LocalDate weekStart = startDate.minusDays(startDate.getDayOfWeek().getValue() - 1L);
+        while (generatedSlots.size() < totalLessons) {
+            for (WeeklySlotTemplate template : slotTemplates) {
+                LocalDate candidateDate = weekStart.plusDays(template.getWeekday() - 1L);
+                if (candidateDate.isBefore(startDate)) {
+                    continue;
+                }
+                generatedSlots.add(new GeneratedSlot(
+                        LocalDateTime.of(candidateDate, template.getStartTime()),
+                        LocalDateTime.of(candidateDate, template.getEndTime()),
+                        template.getSubject()));
+                if (generatedSlots.size() >= totalLessons) {
+                    break;
+                }
+            }
+            weekStart = weekStart.plusWeeks(1);
+        }
+        return generatedSlots;
+    }
+
+    private void validateNoUnexpectedSameClassConflict(Long targetStudentId,
+                                                       LocalDateTime targetStart,
+                                                       LocalDateTime targetEnd) {
+        StudentSchedule unexpectedConflict = studentScheduleMapper.findConflicts(targetStart, targetEnd).stream()
+                .filter(conflict -> {
+                    if (sameSlot(conflict, targetStart, targetEnd)) {
+                        return conflict.getStudentId() != null && conflict.getStudentId().equals(targetStudentId);
+                    }
+                    return true;
+                })
+                .findFirst()
+                .orElse(null);
+        if (unexpectedConflict != null) {
+            if (sameSlot(unexpectedConflict, targetStart, targetEnd)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        String.format("该学生在 %s 已经有同一时段课程，请勿重复加入同班", formatSlot(targetStart, targetEnd)));
+            }
+            throw buildConflictException(unexpectedConflict);
+        }
+    }
+
     /**
      * 查询某周课表：前端传入周一日期，服务端返回该周内所有排课。
      */
@@ -240,6 +376,18 @@ public class StudentScheduleController {
                     String studentName = s != null ? s.getName() : "未知学生";
                     return toView(schedule, studentName, consumptionMap.get(schedule.getId()));
                 })
+                .collect(Collectors.toList());
+    }
+
+    @GetMapping("/students/{studentId}/planned")
+    public List<ScheduleView> listStudentPlannedSchedules(@PathVariable Long studentId) {
+        Student student = studentService.getById(studentId);
+        if (student == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "学生不存在");
+        }
+
+        return studentScheduleMapper.findPlannedByStudentId(studentId).stream()
+                .map(schedule -> toView(schedule, student.getName(), null))
                 .collect(Collectors.toList());
     }
 
@@ -331,6 +479,84 @@ public class StudentScheduleController {
         return toView(schedule, student.getName(), consumption);
     }
 
+    @PostMapping("/students/{studentId}/temporary-lesson")
+    @Transactional
+    public TemporaryAdjustmentView createTemporaryLesson(@PathVariable Long studentId,
+                                                         @Valid @RequestBody ScheduleSlotRequest request) {
+        Student student = requireStudent(studentId);
+        validateSlotRequest(request);
+
+        StudentSchedule lastSchedule = studentScheduleMapper.findLastPlannedByStudentId(studentId);
+        if (lastSchedule == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该学生当前没有可替换的待上课程，请先生成正式课表");
+        }
+
+        LocalDateTime targetStart = LocalDateTime.of(request.getLessonDate(), request.getStartTime());
+        LocalDateTime targetEnd = LocalDateTime.of(request.getLessonDate(), request.getEndTime());
+        StudentSchedule conflict = studentScheduleMapper.findFirstConflict(targetStart, targetEnd);
+        if (conflict != null) {
+            throw buildConflictException(conflict);
+        }
+        if (sameSlot(lastSchedule, targetStart, targetEnd)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "临时加课时间与课表最后一节课完全相同，请直接使用课程改时间");
+        }
+
+        StudentSchedule addedSchedule = new StudentSchedule();
+        addedSchedule.setStudentId(studentId);
+        addedSchedule.setSubject(StringUtils.hasText(lastSchedule.getSubject()) ? lastSchedule.getSubject() : DEFAULT_SUBJECT);
+        addedSchedule.setStartTime(targetStart);
+        addedSchedule.setEndTime(targetEnd);
+        addedSchedule.setStatus(STATUS_PLANNED);
+        addedSchedule.setCreatedAt(LocalDateTime.now());
+        studentScheduleService.save(addedSchedule);
+        studentScheduleService.removeById(lastSchedule.getId());
+        studentLessonBalanceService.refreshStudentBalance(studentId);
+
+        TemporaryAdjustmentView view = new TemporaryAdjustmentView();
+        view.setStudentId(studentId);
+        view.setStudentName(student.getName());
+        view.setMessage(String.format(
+                "已为 %s 补入 %s 的课程，并移除课表末尾的 %s。",
+                student.getName(),
+                formatSlot(targetStart, targetEnd),
+                formatSlot(lastSchedule.getStartTime(), lastSchedule.getEndTime())));
+        view.setAddedSchedule(toView(addedSchedule, student.getName(), null));
+        view.setRemovedSchedule(toView(lastSchedule, student.getName(), null));
+        return view;
+    }
+
+    @PostMapping("/{scheduleId}/reschedule")
+    @Transactional
+    public ScheduleView rescheduleSchedule(@PathVariable Long scheduleId,
+                                           @Valid @RequestBody ScheduleSlotRequest request) {
+        validateSlotRequest(request);
+
+        StudentSchedule schedule = studentScheduleService.getById(scheduleId);
+        if (schedule == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "课程不存在");
+        }
+        if (!STATUS_PLANNED.equalsIgnoreCase(schedule.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "只有待上课程可以改时间，如需调整已销课程请先撤销销课");
+        }
+
+        Student student = requireStudent(schedule.getStudentId());
+        LocalDateTime targetStart = LocalDateTime.of(request.getLessonDate(), request.getStartTime());
+        LocalDateTime targetEnd = LocalDateTime.of(request.getLessonDate(), request.getEndTime());
+        if (sameSlot(schedule, targetStart, targetEnd)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "新时间与原课程时间一致，无需改动");
+        }
+
+        StudentSchedule conflict = studentScheduleMapper.findFirstConflictExcludingId(targetStart, targetEnd, scheduleId);
+        if (conflict != null) {
+            throw buildConflictException(conflict);
+        }
+
+        schedule.setStartTime(targetStart);
+        schedule.setEndTime(targetEnd);
+        studentScheduleService.updateById(schedule);
+        return toView(schedule, student.getName(), null);
+    }
+
     /**
      * 自然语言排课：接收聊天消息，由 AI/规则解析意图后复用现有自动排课能力。
      */
@@ -411,6 +637,51 @@ public class StudentScheduleController {
         }
 
         return response;
+    }
+
+    private Student requireStudent(Long studentId) {
+        Student student = studentService.getById(studentId);
+        if (student == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "学生不存在");
+        }
+        return student;
+    }
+
+    private void validateSlotRequest(ScheduleSlotRequest request) {
+        if (request == null || request.getLessonDate() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择课程日期");
+        }
+        if (request.getStartTime() == null || request.getEndTime() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请完整选择上课时间");
+        }
+        if (!request.getEndTime().isAfter(request.getStartTime())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "结束时间需晚于开始时间");
+        }
+    }
+
+    private boolean sameSlot(StudentSchedule schedule, LocalDateTime targetStart, LocalDateTime targetEnd) {
+        return schedule != null
+                && targetStart != null
+                && targetEnd != null
+                && targetStart.equals(schedule.getStartTime())
+                && targetEnd.equals(schedule.getEndTime());
+    }
+
+    private ResponseStatusException buildConflictException(StudentSchedule conflict) {
+        Student holder = studentService.getById(conflict.getStudentId());
+        String holderName = holder != null ? holder.getName() : "其他学生";
+        return new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                String.format("与 %s 的课程冲突（%s），请调整时间", holderName, formatSlot(conflict.getStartTime(), conflict.getEndTime())));
+    }
+
+    private String formatSlot(LocalDateTime startTime, LocalDateTime endTime) {
+        if (startTime == null || endTime == null) {
+            return "";
+        }
+        return startTime.format(DATE_FORMATTER) + " "
+                + startTime.format(TIME_FORMATTER) + " - "
+                + endTime.format(TIME_FORMATTER);
     }
 
     /**
@@ -593,14 +864,14 @@ public class StudentScheduleController {
 
         private Integer weekday;
 
+        private Long sameClassStudentId;
+
         private LocalDate startDate;
 
         private LocalDate firstLessonDate;
 
-        @NotNull(message = "请选择开始时间")
         private LocalTime startTime;
 
-        @NotNull(message = "请选择结束时间")
         private LocalTime endTime;
 
         public List<Integer> getWeekdays() {
@@ -619,6 +890,14 @@ public class StudentScheduleController {
             this.weekday = weekday;
         }
 
+        public Long getSameClassStudentId() {
+            return sameClassStudentId;
+        }
+
+        public void setSameClassStudentId(Long sameClassStudentId) {
+            this.sameClassStudentId = sameClassStudentId;
+        }
+
         public LocalDate getStartDate() {
             return startDate;
         }
@@ -633,6 +912,41 @@ public class StudentScheduleController {
 
         public void setFirstLessonDate(LocalDate firstLessonDate) {
             this.firstLessonDate = firstLessonDate;
+        }
+
+        public LocalTime getStartTime() {
+            return startTime;
+        }
+
+        public void setStartTime(LocalTime startTime) {
+            this.startTime = startTime;
+        }
+
+        public LocalTime getEndTime() {
+            return endTime;
+        }
+
+        public void setEndTime(LocalTime endTime) {
+            this.endTime = endTime;
+        }
+    }
+
+    public static class ScheduleSlotRequest {
+        @NotNull(message = "请选择课程日期")
+        private LocalDate lessonDate;
+
+        @NotNull(message = "请选择开始时间")
+        private LocalTime startTime;
+
+        @NotNull(message = "请选择结束时间")
+        private LocalTime endTime;
+
+        public LocalDate getLessonDate() {
+            return lessonDate;
+        }
+
+        public void setLessonDate(LocalDate lessonDate) {
+            this.lessonDate = lessonDate;
         }
 
         public LocalTime getStartTime() {
@@ -740,6 +1054,54 @@ public class StudentScheduleController {
         }
     }
 
+    public static class TemporaryAdjustmentView {
+        private Long studentId;
+        private String studentName;
+        private String message;
+        private ScheduleView addedSchedule;
+        private ScheduleView removedSchedule;
+
+        public Long getStudentId() {
+            return studentId;
+        }
+
+        public void setStudentId(Long studentId) {
+            this.studentId = studentId;
+        }
+
+        public String getStudentName() {
+            return studentName;
+        }
+
+        public void setStudentName(String studentName) {
+            this.studentName = studentName;
+        }
+
+        public String getMessage() {
+            return message;
+        }
+
+        public void setMessage(String message) {
+            this.message = message;
+        }
+
+        public ScheduleView getAddedSchedule() {
+            return addedSchedule;
+        }
+
+        public void setAddedSchedule(ScheduleView addedSchedule) {
+            this.addedSchedule = addedSchedule;
+        }
+
+        public ScheduleView getRemovedSchedule() {
+            return removedSchedule;
+        }
+
+        public void setRemovedSchedule(ScheduleView removedSchedule) {
+            this.removedSchedule = removedSchedule;
+        }
+    }
+
     public static class ParsedIntentView {
         private String intent;
         private String studentName;
@@ -821,6 +1183,94 @@ public class StudentScheduleController {
 
         public String getMessage() {
             return message;
+        }
+    }
+
+    private static class SlotTemplateCounter {
+        private final WeeklySlotTemplate template;
+        private int count;
+
+        private SlotTemplateCounter(WeeklySlotTemplate template, int count) {
+            this.template = template;
+            this.count = count;
+        }
+
+        public WeeklySlotTemplate getTemplate() {
+            return template;
+        }
+
+        public int getCount() {
+            return count;
+        }
+
+        public void increment() {
+            this.count += 1;
+        }
+    }
+
+    private static class WeeklySlotTemplate {
+        private final int weekday;
+        private final LocalTime startTime;
+        private final LocalTime endTime;
+        private final String subject;
+
+        private WeeklySlotTemplate(int weekday, LocalTime startTime, LocalTime endTime, String subject) {
+            this.weekday = weekday;
+            this.startTime = startTime;
+            this.endTime = endTime;
+            this.subject = subject;
+        }
+
+        public static WeeklySlotTemplate fromSchedule(StudentSchedule schedule) {
+            return new WeeklySlotTemplate(
+                    schedule.getStartTime().getDayOfWeek().getValue(),
+                    schedule.getStartTime().toLocalTime(),
+                    schedule.getEndTime().toLocalTime(),
+                    schedule.getSubject());
+        }
+
+        public int getWeekday() {
+            return weekday;
+        }
+
+        public LocalTime getStartTime() {
+            return startTime;
+        }
+
+        public LocalTime getEndTime() {
+            return endTime;
+        }
+
+        public String getSubject() {
+            return subject;
+        }
+
+        public String uniqueKey() {
+            return weekday + "|" + startTime + "|" + endTime + "|" + (subject == null ? "" : subject);
+        }
+    }
+
+    private static class GeneratedSlot {
+        private final LocalDateTime startTime;
+        private final LocalDateTime endTime;
+        private final String subject;
+
+        private GeneratedSlot(LocalDateTime startTime, LocalDateTime endTime, String subject) {
+            this.startTime = startTime;
+            this.endTime = endTime;
+            this.subject = subject;
+        }
+
+        public LocalDateTime getStartTime() {
+            return startTime;
+        }
+
+        public LocalDateTime getEndTime() {
+            return endTime;
+        }
+
+        public String getSubject() {
+            return subject;
         }
     }
 
