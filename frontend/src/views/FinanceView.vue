@@ -99,12 +99,22 @@
                   }}
                 </p>
               </div>
-              <el-input
-                v-model="recordKeyword"
-                clearable
-                placeholder="搜索学生姓名"
-                class="record-filter"
-              />
+              <div class="record-toolbar">
+                <el-select v-model="recordSort" class="record-sort">
+                  <el-option
+                    v-for="option in recordSortOptions"
+                    :key="option.value"
+                    :label="option.label"
+                    :value="option.value"
+                  />
+                </el-select>
+                <el-input
+                  v-model="recordKeyword"
+                  clearable
+                  placeholder="搜索学生姓名"
+                  class="record-filter"
+                />
+              </div>
             </div>
           </template>
 
@@ -221,6 +231,7 @@ const records = ref([]);
 const detailDrawerVisible = ref(false);
 const selectedRecordGroup = ref(null);
 const recordKeyword = ref('');
+const recordSort = ref('latest');
 const tuitionOverview = ref({
   totalReceived: 0,
   totalConsumed: 0,
@@ -244,6 +255,11 @@ const renewForm = reactive({
   lessonCount: '',
   remark: ''
 });
+const recordSortOptions = [
+  { label: '最近收费优先', value: 'latest' },
+  { label: '收费金额从高到低', value: 'amount-desc' },
+  { label: '收费金额从低到高', value: 'amount-asc' }
+];
 
 const loadFinanceData = async () => {
   loading.value = true;
@@ -358,6 +374,40 @@ const animateSummaryAmount = (key, targetValue) => {
   amountAnimationFrames[key] = requestAnimationFrame(tick);
 };
 
+const getTimeValue = (value) => {
+  if (!value) {
+    return 0;
+  }
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+};
+
+const compareRecordGroups = (left, right) => {
+  const latestPaidAtDiff = getTimeValue(right.lastPaidAt) - getTimeValue(left.lastPaidAt);
+
+  if (recordSort.value === 'amount-desc') {
+    const amountDiff = Number(right.totalAmount ?? 0) - Number(left.totalAmount ?? 0);
+    if (amountDiff !== 0) {
+      return amountDiff;
+    }
+    return latestPaidAtDiff;
+  }
+
+  if (recordSort.value === 'amount-asc') {
+    const amountDiff = Number(left.totalAmount ?? 0) - Number(right.totalAmount ?? 0);
+    if (amountDiff !== 0) {
+      return amountDiff;
+    }
+    return latestPaidAtDiff;
+  }
+
+  if (latestPaidAtDiff !== 0) {
+    return latestPaidAtDiff;
+  }
+
+  return Number(right.totalAmount ?? 0) - Number(left.totalAmount ?? 0);
+};
+
 const groupedRecords = computed(() => {
   const groupMap = new Map();
 
@@ -391,9 +441,9 @@ const groupedRecords = computed(() => {
   return Array.from(groupMap.values())
     .map((group) => ({
       ...group,
-      records: group.records.slice().sort((left, right) => new Date(right.paidAt) - new Date(left.paidAt))
+      records: group.records.slice().sort((left, right) => getTimeValue(right.paidAt) - getTimeValue(left.paidAt))
     }))
-    .sort((left, right) => new Date(right.lastPaidAt) - new Date(left.lastPaidAt));
+    .sort(compareRecordGroups);
 });
 
 const selectedRenewStudent = computed(() => {

@@ -90,11 +90,21 @@
   gap: 16px;
 }
 
+.finance-page .record-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .finance-page .panel-head p {
   margin-top: 8px;
   color: var(--app-text-secondary);
   font-size: 13px;
   line-height: 1.6;
+}
+
+.finance-page .record-sort {
+  width: 180px;
 }
 
 .finance-page .record-filter {
@@ -397,12 +407,14 @@
     grid-template-columns: 1fr;
   }
 
+  .finance-page .record-toolbar,
   .finance-page .record-item__top,
   .finance-page .renew-form__actions {
     flex-direction: column;
     align-items: flex-start;
   }
 
+  .finance-page .record-sort,
   .finance-page .record-filter {
     width: 100%;
   }
