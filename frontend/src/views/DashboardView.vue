@@ -63,8 +63,9 @@
           <div class="today-course-item__main">
             <div class="today-course-item__time">{{ row.time }}</div>
             <div class="today-course-item__content">
-              <strong>{{ row.studentName }}</strong>
-              <span>{{ row.courseType }}</span>
+              <strong>{{ row.title }}</strong>
+              <span>{{ row.subtitle }}</span>
+              <small v-if="row.detail">{{ row.detail }}</small>
             </div>
           </div>
 
@@ -139,26 +140,73 @@ const trialStatusMetaMap = {
   LOST: { label: '未报名', type: 'info' }
 };
 
-const todayTodoRows = computed(() => {
+const todayScheduleGroups = computed(() => {
   const today = formatDateParam(new Date());
-  const scheduleRows = weekSchedules.value
+  const groupMap = new Map();
+
+  weekSchedules.value
     .filter((item) => formatDateParam(item.startTime) === today)
-    .map((item) => {
+    .forEach((item) => {
+      const subject = item.subject ?? '正式课';
+      const groupKey = [today, item.startTime, item.endTime, subject].join('|');
+      const existingGroup = groupMap.get(groupKey);
       const isDone = normalizedScheduleStatus(item.status) === 'COMPLETED';
-      return {
-        id: `schedule-${item.id}`,
-        entityId: item.id,
-        kind: 'schedule',
+
+      if (existingGroup) {
+        existingGroup.scheduleIds.push(item.id);
+        existingGroup.studentIds.add(item.studentId ?? item.id);
+        existingGroup.studentNames.add(item.studentName ?? '未命名');
+        if (isDone) {
+          existingGroup.completedScheduleIds.push(item.id);
+        } else {
+          existingGroup.pendingScheduleIds.push(item.id);
+        }
+        return;
+      }
+
+      groupMap.set(groupKey, {
+        groupKey,
         sortTime: new Date(item.startTime).getTime(),
         time: formatTimeRange(item.startTime, item.endTime),
-        studentName: item.studentName ?? '未命名',
-        courseType: item.subject ? `正式课 · ${item.subject}` : '正式课',
-        statusLabel: isDone ? '已销课' : '待上课',
-        statusType: isDone ? 'success' : 'warning',
-        isDone
-      };
+        subject,
+        scheduleIds: [item.id],
+        completedScheduleIds: isDone ? [item.id] : [],
+        pendingScheduleIds: isDone ? [] : [item.id],
+        studentIds: new Set([item.studentId ?? item.id]),
+        studentNames: new Set([item.studentName ?? '未命名'])
+      });
     });
 
+  return Array.from(groupMap.values())
+    .map((group) => {
+      const participantCount = group.studentIds.size || group.scheduleIds.length;
+      const studentNames = Array.from(group.studentNames);
+      const completedCount = group.completedScheduleIds.length;
+      const totalCount = group.scheduleIds.length;
+      const isDone = completedCount === totalCount;
+      const isPartial = completedCount > 0 && completedCount < totalCount;
+
+      return {
+        id: `schedule-group-${group.groupKey}`,
+        kind: 'schedule-group',
+        sortTime: group.sortTime,
+        time: group.time,
+        title: group.subject,
+        subtitle: `正式课 · 共 ${participantCount} 位学员`,
+        detail: `学员：${studentNames.join('、')}`,
+        statusLabel: isDone ? '已销课' : isPartial ? `部分销课 ${completedCount}/${totalCount}` : '待上课',
+        statusType: isDone ? 'success' : isPartial ? 'primary' : 'warning',
+        isDone,
+        scheduleIds: group.scheduleIds,
+        completedScheduleIds: group.completedScheduleIds,
+        pendingScheduleIds: group.pendingScheduleIds
+      };
+    })
+    .sort((left, right) => left.sortTime - right.sortTime);
+});
+
+const todayTodoRows = computed(() => {
+  const today = formatDateParam(new Date());
   const trialRows = trials.value
     .filter((item) => formatDateParam(item.trialTime) === today)
     .map((item) => {
@@ -170,15 +218,15 @@ const todayTodoRows = computed(() => {
         kind: 'trial',
         sortTime: new Date(item.trialTime).getTime(),
         time: formatClock(item.trialTime),
-        studentName: item.name ?? '未命名',
-        courseType: '试听课',
+        title: item.name ?? '未命名',
+        subtitle: '试听课',
         statusLabel: statusMeta.label,
         statusType: statusMeta.type,
         isDone: status === 'COMPLETED'
       };
     });
 
-  return [...scheduleRows, ...trialRows]
+  return [...todayScheduleGroups.value, ...trialRows]
     .sort((left, right) => left.sortTime - right.sortTime)
     .map(({ sortTime, ...row }) => row);
 });
@@ -205,9 +253,8 @@ const monthIncomeLabel = computed(() => formatCurrency(animatedMonthIncome.value
 
 const todayCourseCount = computed(() => {
   const today = formatDateParam(new Date());
-  const todaySchedules = weekSchedules.value.filter((item) => formatDateParam(item.startTime) === today).length;
   const todayTrials = trials.value.filter((item) => formatDateParam(item.trialTime) === today).length;
-  return todaySchedules + todayTrials;
+  return todayScheduleGroups.value.length + todayTrials;
 });
 
 const pendingTrials = computed(() => {
@@ -247,9 +294,10 @@ const metricCards = computed(() => [
   }
 ]);
 
-const updateScheduleStatusLocally = (scheduleId, status) => {
+const updateScheduleGroupStatusLocally = (scheduleIds, status) => {
+  const targetIds = new Set(scheduleIds);
   weekSchedules.value = weekSchedules.value.map((item) => {
-    if (item.id !== scheduleId) {
+    if (!targetIds.has(item.id)) {
       return item;
     }
     return {
@@ -280,6 +328,9 @@ const buildTrialUpdatePayload = (trial, status) => ({
 });
 
 const getTodoToggleLabel = (row) => {
+  if (row.kind === 'schedule-group') {
+    return row.isDone ? '恢复整节课为待上课' : '标记整节课已销课';
+  }
   if (row.kind === 'trial') {
     return row.isDone ? '恢复试听状态' : '标记试听完成';
   }
@@ -289,15 +340,20 @@ const getTodoToggleLabel = (row) => {
 const toggleTodoStatus = async (row) => {
   processingTodoId.value = row.id;
   try {
-    if (row.kind === 'schedule') {
+    if (row.kind === 'schedule-group') {
+      const targetIds = row.isDone ? row.completedScheduleIds : row.pendingScheduleIds;
+      if (!targetIds.length) {
+        return;
+      }
+
       if (row.isDone) {
-        await api.undoCompleteSchedule(row.entityId);
-        updateScheduleStatusLocally(row.entityId, 'PLANNED');
-        ElMessage.success('已恢复为待上课');
+        await Promise.all(targetIds.map((scheduleId) => api.undoCompleteSchedule(scheduleId)));
+        updateScheduleGroupStatusLocally(targetIds, 'PLANNED');
+        ElMessage.success('已恢复整节课为待上课');
       } else {
-        await api.completeSchedule(row.entityId);
-        updateScheduleStatusLocally(row.entityId, 'COMPLETED');
-        ElMessage.success('已销课');
+        await Promise.all(targetIds.map((scheduleId) => api.completeSchedule(scheduleId)));
+        updateScheduleGroupStatusLocally(targetIds, 'COMPLETED');
+        ElMessage.success('已更新整节课销课状态');
       }
       return;
     }
@@ -721,9 +777,15 @@ onBeforeUnmount(() => {
   z-index: 1;
 }
 
+.today-course-item__content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
 .today-course-item__content strong {
   display: block;
-  margin-bottom: 4px;
   font-size: 15px;
 }
 
@@ -735,6 +797,13 @@ onBeforeUnmount(() => {
 .today-course-item__content span {
   color: var(--app-text-secondary);
   font-size: 13px;
+}
+
+.today-course-item__content small {
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-word;
 }
 
 .page-state {

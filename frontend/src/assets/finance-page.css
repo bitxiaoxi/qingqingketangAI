@@ -14,7 +14,7 @@
 
 .finance-page .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -48,10 +48,6 @@
   background: #3b82f6;
 }
 
-.finance-page .summary-item__dot--green {
-  background: #22c55e;
-}
-
 .finance-page .summary-item__dot--violet {
   background: #8b5cf6;
 }
@@ -71,11 +67,13 @@
   line-height: 1.6;
 }
 
-.finance-page .finance-layout {
-  display: grid;
-  grid-template-columns: 400px minmax(0, 1fr);
-  gap: 20px;
-  align-items: start;
+.finance-page .record-card .el-card__body {
+  padding-top: 8px;
+}
+
+.finance-page .finance-action-drawer .el-drawer__body {
+  padding-top: 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
 }
 
 .finance-page .panel-head h3 {
@@ -109,10 +107,6 @@
 
 .finance-page .record-filter {
   width: 220px;
-}
-
-.finance-page .renew-card .el-card__body {
-  padding-top: 8px;
 }
 
 .finance-page .renew-form {
@@ -207,13 +201,21 @@
   gap: 12px;
 }
 
-.finance-page .record-card .el-card__body {
-  padding-top: 8px;
-}
-
 .finance-page .record-list {
   display: flex;
   flex-direction: column;
+}
+
+.finance-page .record-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 18px;
+}
+
+.finance-page .record-pagination .el-pagination {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 0;
 }
 
 .finance-page .record-item {
@@ -392,10 +394,6 @@
   .finance-page .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .finance-page .finance-layout {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 900px) {
@@ -409,7 +407,8 @@
 
   .finance-page .record-toolbar,
   .finance-page .record-item__top,
-  .finance-page .renew-form__actions {
+  .finance-page .renew-form__actions,
+  .finance-page .record-pagination {
     flex-direction: column;
     align-items: flex-start;
   }
@@ -418,6 +417,11 @@
   .finance-page .record-filter {
     width: 100%;
   }
+
+  .finance-page .record-pagination .el-pagination {
+    justify-content: flex-start;
+  }
+
 }
 
 @media (max-width: 640px) {

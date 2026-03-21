@@ -16,147 +16,155 @@
         </div>
       </el-card>
 
-      <div class="finance-layout">
-        <el-card shadow="never" class="panel-card renew-card">
-          <template #header>
-            <div class="panel-head">
-              <div>
-                <h3>续费登记</h3>
-                <p>选择学生后录入金额、课时和备注。</p>
-              </div>
+      <el-card shadow="never" class="panel-card record-card">
+        <template #header>
+          <div class="panel-head panel-head--with-filter">
+            <div>
+              <h3>收费记录</h3>
+              <p>
+                {{ normalizedRecordKeyword
+                  ? `当前搜索“${recordKeyword}”，共 ${filteredRecordGroups.length} 位学生。`
+                  : `按学生聚合展示，共 ${filteredRecordGroups.length} 位学生。`
+                }}
+                <span v-if="filteredRecordGroups.length"> {{ recordPaginationSummary }} </span>
+              </p>
             </div>
-          </template>
-
-          <el-form label-position="top" class="renew-form">
-            <el-form-item label="学生" required>
-              <el-select v-model="renewForm.studentId" filterable placeholder="请选择学生">
+            <div class="record-toolbar">
+              <el-select v-model="recordSort" class="record-sort">
                 <el-option
-                  v-for="student in students"
-                  :key="student.id"
-                  :label="`${student.name} · ${student.grade}`"
-                  :value="student.id"
+                  v-for="option in recordSortOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
                 />
               </el-select>
-            </el-form-item>
-
-            <div v-if="selectedRenewStudent" class="renew-student">
-              <strong>{{ selectedRenewStudent.name }}</strong>
-              <span>{{ selectedRenewStudent.grade }}</span>
-            </div>
-
-            <div class="renew-form__grid">
-              <el-form-item label="缴费金额（元）" required>
-                <el-input v-model="renewForm.tuitionPaid" type="number" min="0" placeholder="12000" />
-              </el-form-item>
-
-              <el-form-item label="课时（节）" required>
-                <el-input v-model="renewForm.lessonCount" type="number" min="1" placeholder="40" />
-              </el-form-item>
-            </div>
-
-            <el-form-item label="备注">
               <el-input
-                v-model="renewForm.remark"
-                type="textarea"
-                :rows="4"
-                placeholder="如：春季续费、转账到账、家长备注等"
+                v-model="recordKeyword"
+                clearable
+                placeholder="搜索学生姓名"
+                class="record-filter"
               />
-            </el-form-item>
-
-            <div class="renew-preview">
-              <div class="renew-preview__head">
-                <span>本次登记预览</span>
-                <strong>{{ renewPreviewTitle }}</strong>
-              </div>
-              <div class="renew-preview__grid">
-                <article
-                  v-for="item in renewPreviewItems"
-                  :key="item.label"
-                  class="renew-preview__item"
-                >
-                  <span>{{ item.label }}</span>
-                  <strong>{{ item.value }}</strong>
-                </article>
-              </div>
+              <el-button type="primary" @click="renewDrawerVisible = true">续费登记</el-button>
             </div>
+          </div>
+        </template>
 
-            <div class="renew-form__actions">
-              <el-button @click="resetRenewForm()">清空</el-button>
-              <el-button type="primary" :loading="submitting" @click="submitRenewForm">登记收费</el-button>
-            </div>
-          </el-form>
-        </el-card>
-
-        <el-card shadow="never" class="panel-card record-card">
-          <template #header>
-            <div class="panel-head panel-head--with-filter">
-              <div>
-                <h3>收费记录</h3>
-                <p>
-                  {{ normalizedRecordKeyword
-                    ? `当前搜索“${recordKeyword}”，共 ${filteredRecordGroups.length} 位学生。`
-                    : `按学生聚合展示，共 ${filteredRecordGroups.length} 位学生。`
-                  }}
-                </p>
-              </div>
-              <div class="record-toolbar">
-                <el-select v-model="recordSort" class="record-sort">
-                  <el-option
-                    v-for="option in recordSortOptions"
-                    :key="option.value"
-                    :label="option.label"
-                    :value="option.value"
-                  />
-                </el-select>
-                <el-input
-                  v-model="recordKeyword"
-                  clearable
-                  placeholder="搜索学生姓名"
-                  class="record-filter"
-                />
-              </div>
-            </div>
-          </template>
-
-          <div v-if="loading" class="page-state">财务数据加载中…</div>
-          <el-alert v-else-if="error" :title="error" type="error" show-icon :closable="false" />
-          <div v-else-if="filteredRecordGroups.length" class="record-list">
-            <article
-              v-for="group in filteredRecordGroups"
-              :key="group.groupKey"
-              class="record-item"
-            >
-              <div class="record-item__top">
-                <div class="student-cell">
-                  <el-avatar class="student-cell__avatar">
-                    {{ group.studentName?.slice(0, 1) ?? '学' }}
-                  </el-avatar>
-                  <div>
-                    <strong>{{ group.studentName }}</strong>
-                    <span>{{ group.recordCount }} 笔收费流水</span>
-                  </div>
+        <div v-if="loading" class="page-state">财务数据加载中…</div>
+        <el-alert v-else-if="error" :title="error" type="error" show-icon :closable="false" />
+        <el-empty v-else-if="!filteredRecordGroups.length" description="暂无收费流水" :image-size="72" />
+        <div v-else class="record-list">
+          <article
+            v-for="group in paginatedRecordGroups"
+            :key="group.groupKey"
+            class="record-item"
+          >
+            <div class="record-item__top">
+              <div class="student-cell">
+                <el-avatar class="student-cell__avatar">
+                  {{ group.studentName?.slice(0, 1) ?? '学' }}
+                </el-avatar>
+                <div>
+                  <strong>{{ group.studentName }}</strong>
+                  <span>{{ group.recordCount }} 笔收费流水</span>
                 </div>
-
-                <el-button type="primary" plain @click="openRecordDetail(group)">详情</el-button>
               </div>
 
-              <div class="record-item__meta">
-                <span class="record-meta-item">
-                  <em>总收费</em>
-                  <strong>{{ formatAmount(group.totalAmount) }}</strong>
-                </span>
-                <span class="record-meta-item">
-                  <em>总课时</em>
-                  <strong>{{ group.totalLessons }} 节</strong>
-                </span>
-                <span class="record-time">最近收费 {{ formatTimestamp(group.lastPaidAt) }}</span>
-              </div>
+              <el-button type="primary" plain @click="openRecordDetail(group)">详情</el-button>
+            </div>
+
+            <div class="record-item__meta">
+              <span class="record-meta-item">
+                <em>总收费</em>
+                <strong>{{ formatAmount(group.totalAmount) }}</strong>
+              </span>
+              <span class="record-meta-item">
+                <em>总课时</em>
+                <strong>{{ group.totalLessons }} 节</strong>
+              </span>
+              <span class="record-time">最近收费 {{ formatTimestamp(group.lastPaidAt) }}</span>
+            </div>
+          </article>
+
+          <div class="record-pagination">
+            <el-pagination
+              v-model:current-page="recordCurrentPage"
+              v-model:page-size="recordPageSize"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="recordPageSizeOptions"
+              :total="filteredRecordGroups.length"
+            />
+          </div>
+        </div>
+      </el-card>
+    </div>
+
+    <el-drawer
+      v-model="renewDrawerVisible"
+      title="续费登记"
+      size="520px"
+      destroy-on-close
+      class="finance-action-drawer"
+    >
+      <el-form label-position="top" class="renew-form">
+        <el-form-item label="学生" required>
+          <el-select v-model="renewForm.studentId" filterable placeholder="请选择学生">
+            <el-option
+              v-for="student in students"
+              :key="student.id"
+              :label="`${student.name} · ${student.grade}`"
+              :value="student.id"
+            />
+          </el-select>
+        </el-form-item>
+
+        <div v-if="selectedRenewStudent" class="renew-student">
+          <strong>{{ selectedRenewStudent.name }}</strong>
+          <span>{{ selectedRenewStudent.grade }}</span>
+        </div>
+
+        <div class="renew-form__grid">
+          <el-form-item label="缴费金额（元）" required>
+            <el-input v-model="renewForm.tuitionPaid" type="number" min="0" placeholder="12000" />
+          </el-form-item>
+
+          <el-form-item label="课时（节）" required>
+            <el-input v-model="renewForm.lessonCount" type="number" min="1" placeholder="40" />
+          </el-form-item>
+        </div>
+
+        <el-form-item label="备注">
+          <el-input
+            v-model="renewForm.remark"
+            type="textarea"
+            :rows="4"
+            placeholder="如：春季续费、转账到账、家长备注等"
+          />
+        </el-form-item>
+
+        <div class="renew-preview">
+          <div class="renew-preview__head">
+            <span>本次登记预览</span>
+            <strong>{{ renewPreviewTitle }}</strong>
+          </div>
+          <div class="renew-preview__grid">
+            <article
+              v-for="item in renewPreviewItems"
+              :key="item.label"
+              class="renew-preview__item"
+            >
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
             </article>
           </div>
-          <el-empty v-else description="暂无收费流水" :image-size="72" />
-        </el-card>
-      </div>
-    </div>
+        </div>
+
+        <div class="renew-form__actions">
+          <el-button @click="resetRenewForm()">清空</el-button>
+          <el-button type="primary" :loading="submitting" @click="submitRenewForm">登记收费</el-button>
+        </div>
+      </el-form>
+    </el-drawer>
 
     <el-drawer
       v-model="detailDrawerVisible"
@@ -217,7 +225,6 @@ import {
   formatAmount,
   formatCurrency,
   formatTimestamp,
-  isCurrentMonth,
   normalizeError
 } from '../utils/format';
 
@@ -228,10 +235,13 @@ const error = ref('');
 const submitting = ref(false);
 const students = ref([]);
 const records = ref([]);
+const renewDrawerVisible = ref(false);
 const detailDrawerVisible = ref(false);
 const selectedRecordGroup = ref(null);
 const recordKeyword = ref('');
 const recordSort = ref('latest');
+const recordCurrentPage = ref(1);
+const recordPageSize = ref(5);
 const tuitionOverview = ref({
   totalReceived: 0,
   totalConsumed: 0,
@@ -239,13 +249,11 @@ const tuitionOverview = ref({
 });
 const animatedSummaryAmounts = reactive({
   totalReceived: 0,
-  monthIncome: 0,
   totalConsumed: 0,
   totalPending: 0
 });
 const amountAnimationFrames = {
   totalReceived: 0,
-  monthIncome: 0,
   totalConsumed: 0,
   totalPending: 0
 };
@@ -260,6 +268,7 @@ const recordSortOptions = [
   { label: '收费金额从高到低', value: 'amount-desc' },
   { label: '收费金额从低到高', value: 'amount-asc' }
 ];
+const recordPageSizeOptions = [5, 10, 20, 50];
 
 const loadFinanceData = async () => {
   loading.value = true;
@@ -280,24 +289,12 @@ const loadFinanceData = async () => {
   }
 };
 
-const monthIncomeTotal = computed(() => {
-  return records.value
-    .filter((record) => isCurrentMonth(record.paidAt))
-    .reduce((sum, record) => sum + Number(record.tuitionPaid ?? 0), 0);
-});
-
 const metricCards = computed(() => [
   {
     label: '总收入',
     value: formatAmount(animatedSummaryAmounts.totalReceived / 100),
     helper: '累计收费流水',
     tone: 'summary-item__dot--blue'
-  },
-  {
-    label: '本月收入',
-    value: formatAmount(animatedSummaryAmounts.monthIncome / 100),
-    helper: '按本月收费时间汇总',
-    tone: 'summary-item__dot--green'
   },
   {
     label: '已核销费用',
@@ -461,6 +458,22 @@ const filteredRecordGroups = computed(() => {
   });
 });
 
+const recordTotalPages = computed(() => {
+  return Math.max(1, Math.ceil(filteredRecordGroups.value.length / recordPageSize.value));
+});
+
+const paginatedRecordGroups = computed(() => {
+  const startIndex = (recordCurrentPage.value - 1) * recordPageSize.value;
+  return filteredRecordGroups.value.slice(startIndex, startIndex + recordPageSize.value);
+});
+
+const recordPaginationSummary = computed(() => {
+  if (!filteredRecordGroups.value.length) {
+    return '';
+  }
+  return `当前第 ${recordCurrentPage.value}/${recordTotalPages.value} 页，每页 ${recordPageSize.value} 位学生。`;
+});
+
 const renewPreviewTitle = computed(() => {
   if (selectedRenewStudent.value) {
     return `${selectedRenewStudent.value.name} · ${selectedRenewStudent.value.grade}`;
@@ -507,6 +520,7 @@ const submitRenewForm = async () => {
     ElMessage.success('收费登记成功');
     resetRenewForm(renewForm.studentId);
     await loadFinanceData();
+    renewDrawerVisible.value = false;
   } catch (requestError) {
     ElMessage.error(normalizeError(requestError, '收费登记失败'));
   } finally {
@@ -547,11 +561,32 @@ watch(students, (nextStudents) => {
   }
 });
 
+watch(renewDrawerVisible, (visible) => {
+  if (!visible && !submitting.value) {
+    resetRenewForm();
+  }
+});
+
+watch([recordKeyword, recordSort], () => {
+  recordCurrentPage.value = 1;
+});
+
+watch(recordPageSize, () => {
+  recordCurrentPage.value = 1;
+});
+
+watch(filteredRecordGroups, (groups) => {
+  const totalPages = Math.max(1, Math.ceil(groups.length / recordPageSize.value));
+  if (recordCurrentPage.value > totalPages) {
+    recordCurrentPage.value = totalPages;
+  }
+});
+
 watch(filteredRecordGroups, (groups) => {
   if (!selectedRecordGroup.value) {
     return;
   }
-  const nextGroup = groups.find((group) => group.studentId === selectedRecordGroup.value.studentId);
+  const nextGroup = groups.find((group) => group.groupKey === selectedRecordGroup.value.groupKey);
   if (nextGroup) {
     selectedRecordGroup.value = nextGroup;
     return;
@@ -563,13 +598,11 @@ watch(filteredRecordGroups, (groups) => {
 watch(
   () => [
     tuitionOverview.value.totalReceived,
-    monthIncomeTotal.value,
     tuitionOverview.value.totalConsumed,
     tuitionOverview.value.totalPending
   ],
-  ([totalReceived, monthIncome, totalConsumed, totalPending]) => {
+  ([totalReceived, totalConsumed, totalPending]) => {
     animateSummaryAmount('totalReceived', totalReceived);
-    animateSummaryAmount('monthIncome', monthIncome);
     animateSummaryAmount('totalConsumed', totalConsumed);
     animateSummaryAmount('totalPending', totalPending);
   },

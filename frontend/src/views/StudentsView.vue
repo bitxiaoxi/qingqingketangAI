@@ -30,59 +30,72 @@
 
       <div v-if="loading" class="page-state">学生数据加载中…</div>
       <el-alert v-else-if="error" :title="error" type="error" show-icon :closable="false" />
-      <el-table
-        v-else-if="filteredStudents.length"
-        :data="filteredStudents"
-        stripe
-        height="auto"
-        class="student-table"
-      >
-        <el-table-column label="姓名" min-width="180">
-          <template #default="{ row }">
-            <div class="student-name-cell">
-              <el-avatar class="student-name-cell__avatar">
-                {{ row.name?.slice(0, 1) ?? '学' }}
-              </el-avatar>
-              <div>
-                <strong>{{ row.name }}</strong>
-                <span>录入于 {{ shortTimestamp(row.createdAt) }}</span>
+      <div v-else-if="filteredStudents.length">
+        <el-table
+          :data="paginatedStudents"
+          stripe
+          height="auto"
+          class="student-table"
+          @sort-change="handleTableSortChange"
+        >
+          <el-table-column label="姓名" min-width="180">
+            <template #default="{ row }">
+              <div class="student-name-cell">
+                <el-avatar class="student-name-cell__avatar">
+                  {{ row.name?.slice(0, 1) ?? '学' }}
+                </el-avatar>
+                <div>
+                  <strong>{{ row.name }}</strong>
+                  <span>录入于 {{ shortTimestamp(row.createdAt) }}</span>
+                </div>
               </div>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column prop="gender" label="性别" width="88" />
-        <el-table-column prop="grade" label="年级" min-width="180" />
-        <el-table-column label="购买课时" width="110" sortable :sort-method="comparePurchasedLessons">
-          <template #default="{ row }">
-            <span class="student-badge student-badge--neutral">{{ formatLessonCount(getPurchasedLessons(row)) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="已销课时" width="110" sortable :sort-method="compareCompletedLessons">
-          <template #default="{ row }">
-            <span class="student-badge student-badge--warm">{{ formatLessonCount(getCompletedLessons(row)) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="剩余课时" width="110" sortable :sort-method="compareRemainingLessons">
-          <template #default="{ row }">
-            <span class="student-badge">{{ formatLessonCount(getRemainingLessons(row)) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="录入时间" min-width="170">
-          <template #default="{ row }">
-            {{ shortTimestamp(row.createdAt) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" min-width="270" fixed="right">
-          <template #default="{ row }">
-            <div class="table-actions">
-              <el-button link type="primary" @click="openDetail(row)">查看</el-button>
-              <el-button link @click="openEditDialog(row)">编辑</el-button>
-              <el-button link @click="goToSchedule(row)">排课</el-button>
-              <el-button link @click="goToFinance(row)">收费记录</el-button>
-            </div>
-          </template>
-        </el-table-column>
-      </el-table>
+            </template>
+          </el-table-column>
+          <el-table-column prop="gender" label="性别" width="88" />
+          <el-table-column prop="grade" label="年级" min-width="180" />
+          <el-table-column prop="lessonCount" label="购买课时" width="110" sortable="custom">
+            <template #default="{ row }">
+              <span class="student-badge student-badge--neutral">{{ formatLessonCount(getPurchasedLessons(row)) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="completedLessons" label="已销课时" width="110" sortable="custom">
+            <template #default="{ row }">
+              <span class="student-badge student-badge--warm">{{ formatLessonCount(getCompletedLessons(row)) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="remainingLessons" label="剩余课时" width="110" sortable="custom">
+            <template #default="{ row }">
+              <span class="student-badge">{{ formatLessonCount(getRemainingLessons(row)) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="录入时间" min-width="170">
+            <template #default="{ row }">
+              {{ shortTimestamp(row.createdAt) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" min-width="270" fixed="right">
+            <template #default="{ row }">
+              <div class="table-actions">
+                <el-button link type="primary" @click="openDetail(row)">查看</el-button>
+                <el-button link @click="openEditDialog(row)">编辑</el-button>
+                <el-button link @click="goToSchedule(row)">排课</el-button>
+                <el-button link @click="goToFinance(row)">收费记录</el-button>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div class="student-table-pagination">
+          <el-pagination
+            v-model:current-page="studentCurrentPage"
+            v-model:page-size="studentPageSize"
+            background
+            layout="total, sizes, prev, pager, next"
+            :page-sizes="studentPageSizeOptions"
+            :total="filteredStudents.length"
+          />
+        </div>
+      </div>
       <el-empty v-else description="暂无匹配的学生" :image-size="72" />
     </el-card>
 
@@ -213,6 +226,8 @@ const formDialogVisible = ref(false);
 const detailDrawerVisible = ref(false);
 const selectedStudent = ref(null);
 const formMode = ref('create');
+const studentCurrentPage = ref(1);
+const studentPageSize = ref(10);
 const filters = reactive({
   keyword: '',
   grade: ''
@@ -225,6 +240,11 @@ const studentForm = reactive({
   tuitionPaid: '',
   lessonCount: ''
 });
+const tableSort = reactive({
+  prop: '',
+  order: ''
+});
+const studentPageSizeOptions = [10, 20, 50, 100];
 
 const isEditMode = computed(() => formMode.value === 'edit');
 
@@ -241,12 +261,6 @@ const getCompletedLessons = (student) => {
 };
 
 const formatLessonCount = (value) => `${Math.max(0, Number(value ?? 0))} 节`;
-
-const comparePurchasedLessons = (left, right) => getPurchasedLessons(left) - getPurchasedLessons(right);
-
-const compareCompletedLessons = (left, right) => getCompletedLessons(left) - getCompletedLessons(right);
-
-const compareRemainingLessons = (left, right) => getRemainingLessons(left) - getRemainingLessons(right);
 
 const loadStudents = async () => {
   loading.value = true;
@@ -267,6 +281,31 @@ const filteredStudents = computed(() => {
     const matchesGrade = !filters.grade || student.grade === filters.grade;
     return matchesKeyword && matchesGrade;
   });
+});
+
+const sortedStudents = computed(() => {
+  if (!tableSort.prop || !tableSort.order) {
+    return filteredStudents.value;
+  }
+
+  const direction = tableSort.order === 'ascending' ? 1 : -1;
+  return filteredStudents.value.slice().sort((left, right) => {
+    if (tableSort.prop === 'lessonCount') {
+      return (getPurchasedLessons(left) - getPurchasedLessons(right)) * direction;
+    }
+    if (tableSort.prop === 'completedLessons') {
+      return (getCompletedLessons(left) - getCompletedLessons(right)) * direction;
+    }
+    if (tableSort.prop === 'remainingLessons') {
+      return (getRemainingLessons(left) - getRemainingLessons(right)) * direction;
+    }
+    return 0;
+  });
+});
+
+const paginatedStudents = computed(() => {
+  const startIndex = (studentCurrentPage.value - 1) * studentPageSize.value;
+  return sortedStudents.value.slice(startIndex, startIndex + studentPageSize.value);
 });
 
 const resetForm = () => {
@@ -353,10 +392,34 @@ const goToFinance = (student) => {
   });
 };
 
+const handleTableSortChange = ({ prop, order }) => {
+  tableSort.prop = prop ?? '';
+  tableSort.order = order ?? '';
+  studentCurrentPage.value = 1;
+};
+
 const resetFilters = () => {
   filters.keyword = '';
   filters.grade = '';
 };
+
+watch(
+  () => [filters.keyword, filters.grade],
+  () => {
+    studentCurrentPage.value = 1;
+  }
+);
+
+watch(studentPageSize, () => {
+  studentCurrentPage.value = 1;
+});
+
+watch(sortedStudents, (nextStudents) => {
+  const totalPages = Math.max(1, Math.ceil(nextStudents.length / studentPageSize.value));
+  if (studentCurrentPage.value > totalPages) {
+    studentCurrentPage.value = totalPages;
+  }
+});
 
 watch(
   () => route.query.action,
@@ -418,6 +481,18 @@ onMounted(loadStudents);
 
 .student-table :deep(.el-table__cell) {
   padding: 10px 0;
+}
+
+.student-table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 18px;
+}
+
+.student-table-pagination :deep(.el-pagination) {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 0;
 }
 
 .student-name-cell {
@@ -605,6 +680,14 @@ onMounted(loadStudents);
   .dialog-grid,
   .student-detail__stats {
     grid-template-columns: 1fr;
+  }
+
+  .student-table-pagination {
+    justify-content: flex-start;
+  }
+
+  .student-table-pagination :deep(.el-pagination) {
+    justify-content: flex-start;
   }
 }
 </style>
