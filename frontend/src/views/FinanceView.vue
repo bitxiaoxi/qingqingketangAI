@@ -113,14 +113,26 @@
         <el-alert v-else-if="writeOffError" :title="writeOffError" type="error" show-icon :closable="false" />
         <div v-else class="write-off-calendar-section">
           <div class="write-off-calendar-summary">
-            <strong>{{ writeOffMonthTitle }}</strong>
-            <span>本月可核销 {{ formatAmount(writeOffOverview.monthAmount ?? 0) }}</span>
+            <div class="write-off-calendar-summary__month">
+              <span>当前账期</span>
+              <strong>{{ writeOffMonthTitle }}</strong>
+            </div>
+            <div class="write-off-calendar-summary__amount">
+              <span>本月可核销金额</span>
+              <strong>{{ formatAmount(writeOffOverview.monthAmount ?? 0) }}</strong>
+            </div>
           </div>
 
           <div class="write-off-calendar-shell">
             <div class="write-off-calendar">
               <div class="write-off-calendar__weekdays">
-                <span v-for="weekday in writeOffWeekdayLabels" :key="weekday">{{ weekday }}</span>
+                <span
+                  v-for="(weekday, index) in writeOffWeekdayLabels"
+                  :key="weekday"
+                  :data-weekend="index >= 5 ? 'true' : 'false'"
+                >
+                  {{ weekday }}
+                </span>
               </div>
 
               <div class="write-off-calendar__grid">
@@ -130,13 +142,23 @@
                   class="write-off-calendar__day"
                   :data-current-month="day.isCurrentMonth ? 'true' : 'false'"
                   :data-today="day.isToday ? 'true' : 'false'"
+                  :data-selected="day.isSelected ? 'true' : 'false'"
+                  :data-weekend="day.isWeekend ? 'true' : 'false'"
+                  :data-has-amount="day.isCurrentMonth && day.amount > 0 ? 'true' : 'false'"
+                  :data-empty="day.isCurrentMonth && day.amount <= 0 ? 'true' : 'false'"
                 >
                   <div class="write-off-calendar__day-head">
                     <span>{{ day.dayNumber }}</span>
+                    <em v-if="day.isToday">今天</em>
                   </div>
 
-                  <strong v-if="day.isCurrentMonth && day.amount > 0">{{ formatWriteOffCalendarAmount(day.amount) }}</strong>
-                  <small v-else-if="day.isCurrentMonth">暂无可核销</small>
+                  <strong
+                    v-if="day.isCurrentMonth && day.amount > 0"
+                    class="write-off-calendar__amount"
+                  >
+                    {{ formatWriteOffCalendarAmount(day.amount) }}
+                  </strong>
+                  <small v-else-if="day.isCurrentMonth" class="write-off-calendar__empty">暂无可核销</small>
                 </article>
               </div>
             </div>
@@ -284,6 +306,7 @@ const submitting = ref(false);
 const students = ref([]);
 const records = ref([]);
 const writeOffMonth = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+const selectedWriteOffDateKey = ref('');
 const renewDrawerVisible = ref(false);
 const detailDrawerVisible = ref(false);
 const selectedRecordGroup = ref(null);
@@ -339,6 +362,11 @@ const formatWriteOffMonthParam = (value) => {
 const getWriteOffDateKey = (value) => {
   const date = new Date(value);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
+const getWriteOffWeekdayIndex = (value) => {
+  const day = new Date(value).getDay();
+  return day === 0 ? 6 : day - 1;
 };
 
 const isSameCalendarDay = (left, right) => {
@@ -577,12 +605,16 @@ const writeOffCalendarDays = computed(() => {
     const dayAmount = writeOffDailyAmountMap.value.get(key);
     const amount = Number(dayAmount?.amount ?? 0);
     const studentLessonCount = Number(dayAmount?.studentLessonCount ?? 0);
+    const weekdayIndex = getWriteOffWeekdayIndex(date);
+    const isCurrentMonth = date.getFullYear() === monthStart.getFullYear() && date.getMonth() === monthStart.getMonth();
 
     return {
       key,
       dayNumber: date.getDate(),
-      isCurrentMonth: date.getFullYear() === monthStart.getFullYear() && date.getMonth() === monthStart.getMonth(),
+      isCurrentMonth,
       isToday: isSameCalendarDay(date, today),
+      isSelected: key === selectedWriteOffDateKey.value,
+      isWeekend: weekdayIndex >= 5,
       amount: Number.isFinite(amount) ? amount : 0,
       studentLessonCount: Number.isFinite(studentLessonCount) ? studentLessonCount : 0
     };
@@ -604,6 +636,26 @@ const goToCurrentWriteOffMonth = async () => {
     return;
   }
   await loadWriteOffOverview(new Date());
+};
+
+const resolveDefaultSelectedWriteOffDateKey = (days) => {
+  const currentMonthDays = days.filter((day) => day.isCurrentMonth);
+  if (!currentMonthDays.length) {
+    return '';
+  }
+  const existingSelectedDay = currentMonthDays.find((day) => day.key === selectedWriteOffDateKey.value);
+  if (existingSelectedDay) {
+    return existingSelectedDay.key;
+  }
+  const firstAmountDay = currentMonthDays.find((day) => day.amount > 0);
+  if (firstAmountDay) {
+    return firstAmountDay.key;
+  }
+  const todayDay = currentMonthDays.find((day) => day.isToday);
+  if (todayDay) {
+    return todayDay.key;
+  }
+  return currentMonthDays[0].key;
 };
 
 const selectedRenewStudent = computed(() => {
@@ -757,6 +809,17 @@ watch(filteredRecordGroups, (groups) => {
   detailDrawerVisible.value = false;
   selectedRecordGroup.value = null;
 });
+
+watch(
+  writeOffCalendarDays,
+  (days) => {
+    const nextSelectedDateKey = resolveDefaultSelectedWriteOffDateKey(days);
+    if (nextSelectedDateKey !== selectedWriteOffDateKey.value) {
+      selectedWriteOffDateKey.value = nextSelectedDateKey;
+    }
+  },
+  { immediate: true }
+);
 
 watch(
   () => [

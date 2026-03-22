@@ -71,8 +71,37 @@
   padding: 18px 20px 20px;
 }
 
+.finance-page .write-off-card {
+  --write-off-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(246, 250, 253, 0.98) 100%);
+  --write-off-panel-bg-soft: linear-gradient(180deg, rgba(248, 251, 255, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
+  --write-off-day-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(248, 251, 255, 0.96) 100%);
+  --write-off-day-bg-soft: linear-gradient(180deg, rgba(249, 251, 253, 0.98) 0%, rgba(244, 247, 250, 0.96) 100%);
+  --write-off-day-bg-weekend: linear-gradient(180deg, rgba(250, 253, 255, 0.99) 0%, rgba(244, 249, 253, 0.96) 100%);
+  --write-off-day-bg-selected: linear-gradient(180deg, rgba(244, 249, 255, 0.99) 0%, rgba(238, 246, 255, 0.97) 100%);
+  --write-off-day-bg-outside: linear-gradient(180deg, rgba(247, 249, 252, 0.92) 0%, rgba(242, 245, 248, 0.9) 100%);
+  --write-off-border: rgba(203, 213, 225, 0.78);
+  --write-off-border-soft: rgba(226, 232, 240, 0.92);
+  --write-off-border-strong: rgba(148, 163, 184, 0.28);
+  --write-off-border-accent: rgba(96, 165, 250, 0.5);
+  --write-off-shadow-panel: 0 18px 36px rgba(15, 23, 42, 0.06);
+  --write-off-shadow-card: 0 10px 24px rgba(15, 23, 42, 0.05);
+  --write-off-shadow-selected: 0 18px 36px rgba(59, 130, 246, 0.14);
+  --write-off-radius-lg: 24px;
+  --write-off-radius-md: 20px;
+  --write-off-radius-sm: 16px;
+  border-color: rgba(203, 213, 225, 0.86);
+  background: linear-gradient(180deg, #fcfdff 0%, #f5f8fc 100%);
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.05);
+}
+
+.finance-page .write-off-card .el-card__body {
+  padding: 20px 20px 22px;
+}
+
 .finance-page .write-off-card .panel-head {
-  margin-bottom: 18px;
+  position: relative;
+  z-index: 1;
+  margin-bottom: 12px;
 }
 
 .finance-page .write-off-card__head {
@@ -80,6 +109,25 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  padding: 22px 24px 18px;
+  border: 1px solid var(--write-off-border);
+  border-radius: var(--write-off-radius-lg) var(--write-off-radius-lg) 20px 20px;
+  background: var(--write-off-panel-bg);
+  box-shadow: var(--write-off-shadow-panel);
+}
+
+.finance-page .write-off-card__head > div:first-child {
+  min-width: 0;
+}
+
+.finance-page .write-off-card__head h3 {
+  font-size: 23px;
+  letter-spacing: -0.01em;
+}
+
+.finance-page .write-off-card__head p {
+  max-width: 640px;
+  color: #64748b;
 }
 
 .finance-page .write-off-calendar-actions {
@@ -90,106 +138,261 @@
   gap: 10px;
 }
 
+.finance-page .write-off-calendar-actions .el-button {
+  min-width: 88px;
+  border-color: rgba(203, 213, 225, 0.86);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--app-text-secondary);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.finance-page .write-off-calendar-actions .el-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(148, 163, 184, 0.48);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.06);
+}
+
 .finance-page .write-off-calendar-section {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
+  margin-top: -8px;
 }
 
 .finance-page .write-off-calendar-summary {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 18px 24px 20px;
+  border: 1px solid var(--write-off-border);
+  border-top: 0;
+  border-radius: 0 0 var(--write-off-radius-lg) var(--write-off-radius-lg);
+  background: var(--write-off-panel-bg-soft);
+  box-shadow: var(--write-off-shadow-panel);
+}
+
+.finance-page .write-off-calendar-summary__month,
+.finance-page .write-off-calendar-summary__amount {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px 18px;
-  border: 1px solid rgba(226, 232, 240, 0.92);
-  border-radius: 18px;
-  background: rgba(248, 250, 252, 0.92);
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
 }
 
-.finance-page .write-off-calendar-summary strong {
-  font-size: 24px;
-  line-height: 1.2;
+.finance-page .write-off-calendar-summary__month span,
+.finance-page .write-off-calendar-summary__amount span {
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.05em;
 }
 
-.finance-page .write-off-calendar-summary span {
-  color: var(--app-text-secondary);
-  font-size: 13px;
-  line-height: 1.7;
+.finance-page .write-off-calendar-summary__month strong {
+  font-size: 26px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.finance-page .write-off-calendar-summary__amount {
+  align-items: flex-end;
+  padding-left: 22px;
+  border-left: 1px solid rgba(203, 213, 225, 0.82);
+}
+
+.finance-page .write-off-calendar-summary__amount strong {
+  font-size: 28px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: #0f172a;
 }
 
 .finance-page .write-off-calendar-shell {
   overflow-x: auto;
+  padding: 16px;
+  border: 1px solid var(--write-off-border);
+  border-radius: 26px;
+  background: var(--write-off-panel-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), var(--write-off-shadow-panel);
 }
 
 .finance-page .write-off-calendar {
-  min-width: 760px;
+  min-width: 780px;
 }
 
 .finance-page .write-off-calendar__weekdays,
 .finance-page .write-off-calendar__grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .finance-page .write-off-calendar__weekdays {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .finance-page .write-off-calendar__weekdays span {
-  padding: 8px 10px;
-  color: var(--app-text-secondary);
+  padding: 10px 12px;
+  border: 1px solid rgba(226, 232, 240, 0.84);
+  border-radius: 14px;
+  background: rgba(241, 245, 249, 0.74);
+  color: #64748b;
   font-size: 12px;
   font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
   text-align: center;
 }
 
+.finance-page .write-off-calendar__weekdays span[data-weekend='true'] {
+  background: rgba(239, 246, 255, 0.72);
+}
+
 .finance-page .write-off-calendar__day {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-height: 122px;
-  padding: 12px;
-  border: 1px solid rgba(226, 232, 240, 0.92);
-  border-radius: 18px;
-  background: #ffffff;
-  transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+  gap: 18px;
+  min-height: 132px;
+  padding: 14px 14px 16px;
+  border: 1px solid var(--write-off-border-soft);
+  border-radius: var(--write-off-radius-md);
+  background: var(--write-off-day-bg);
+  box-shadow: var(--write-off-shadow-card);
+  transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease, transform 180ms ease;
+}
+
+.finance-page .write-off-calendar__day::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0) 46%);
+  pointer-events: none;
+}
+
+.finance-page .write-off-calendar__day[data-current-month='true'][data-weekend='true'] {
+  background: var(--write-off-day-bg-weekend);
+}
+
+.finance-page .write-off-calendar__day[data-current-month='true'][data-empty='true'] {
+  background: var(--write-off-day-bg-soft);
+}
+
+.finance-page .write-off-calendar__day[data-current-month='true'][data-has-amount='true'] {
+  border-color: rgba(191, 219, 254, 0.96);
 }
 
 .finance-page .write-off-calendar__day[data-current-month='false'] {
-  background: rgba(248, 250, 252, 0.72);
-  opacity: 0.58;
+  background: var(--write-off-day-bg-outside);
+  border-color: rgba(226, 232, 240, 0.76);
+  box-shadow: none;
+}
+
+.finance-page .write-off-calendar__day[data-current-month='false'] .write-off-calendar__day-head span {
+  color: rgba(100, 116, 139, 0.78);
+  background: rgba(255, 255, 255, 0.55);
 }
 
 .finance-page .write-off-calendar__day[data-today='true'] {
-  border-color: rgba(59, 130, 246, 0.48);
-  box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.9);
+  border-color: rgba(96, 165, 250, 0.44);
+  box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.72), var(--write-off-shadow-card);
+}
+
+.finance-page .write-off-calendar__day[data-current-month='false'][data-today='true'] {
+  border-color: rgba(148, 163, 184, 0.56);
+  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.9);
+}
+
+.finance-page .write-off-calendar__day[data-selected='true'] {
+  border-color: var(--write-off-border-accent);
+  background: var(--write-off-day-bg-selected);
+  box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.86), var(--write-off-shadow-selected);
+  transform: translateY(-1px);
+}
+
+.finance-page .write-off-calendar__day[data-selected='true'][data-today='true'] {
+  border-color: rgba(59, 130, 246, 0.52);
+  box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.92), var(--write-off-shadow-selected);
 }
 
 .finance-page .write-off-calendar__day-head {
+  position: relative;
+  z-index: 1;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .finance-page .write-off-calendar__day-head span {
-  font-size: 16px;
-  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(226, 232, 240, 0.84);
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.95);
   color: var(--app-text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
 }
 
-.finance-page .write-off-calendar__day strong {
+.finance-page .write-off-calendar__day[data-selected='true'] .write-off-calendar__day-head span {
+  border-color: rgba(191, 219, 254, 0.94);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.finance-page .write-off-calendar__day-head em {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(239, 246, 255, 0.9);
+  color: #2563eb;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.finance-page .write-off-calendar__day[data-current-month='false'] .write-off-calendar__day-head em {
+  background: rgba(241, 245, 249, 0.92);
+  color: #64748b;
+}
+
+.finance-page .write-off-calendar__amount,
+.finance-page .write-off-calendar__empty {
+  position: relative;
+  z-index: 1;
   margin-top: auto;
+}
+
+.finance-page .write-off-calendar__amount {
   color: #0f172a;
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
 }
 
-.finance-page .write-off-calendar__day small {
-  margin-top: auto;
-  color: var(--app-text-tertiary);
+.finance-page .write-off-calendar__day[data-selected='true'] .write-off-calendar__amount {
+  color: #0b1f38;
+}
+
+.finance-page .write-off-calendar__empty {
+  color: #94a3b8;
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.7;
 }
 
 .finance-page .finance-action-drawer .el-drawer__body {
@@ -531,10 +734,36 @@
   .finance-page .record-item__top,
   .finance-page .renew-form__actions,
   .finance-page .record-pagination,
-  .finance-page .write-off-calendar-actions,
-  .finance-page .write-off-calendar-summary {
+  .finance-page .write-off-calendar-actions {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .finance-page .write-off-card__head {
+    padding: 20px 18px 16px;
+    border-radius: 22px 22px 18px 18px;
+  }
+
+  .finance-page .write-off-calendar-section {
+    margin-top: -4px;
+  }
+
+  .finance-page .write-off-calendar-summary {
+    grid-template-columns: 1fr;
+    padding: 16px 18px 18px;
+    border-radius: 0 0 22px 22px;
+  }
+
+  .finance-page .write-off-calendar-summary__amount {
+    align-items: flex-start;
+    padding-left: 0;
+    padding-top: 12px;
+    border-top: 1px solid rgba(203, 213, 225, 0.82);
+    border-left: 0;
+  }
+
+  .finance-page .write-off-calendar-actions {
+    align-items: stretch;
   }
 
   .finance-page .record-sort,
@@ -546,10 +775,33 @@
     justify-content: flex-start;
   }
 
+  .finance-page .write-off-calendar-shell {
+    padding: 12px;
+    border-radius: 22px;
+  }
 }
 
 @media (max-width: 640px) {
   .finance-page .summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .finance-page .write-off-card .el-card__body {
+    padding: 18px;
+  }
+
+  .finance-page .write-off-calendar__weekdays,
+  .finance-page .write-off-calendar__grid {
+    gap: 10px;
+  }
+
+  .finance-page .write-off-calendar__day {
+    min-height: 120px;
+    padding: 12px;
+    gap: 16px;
+  }
+
+  .finance-page .write-off-calendar__amount {
+    font-size: 16px;
   }
 }
