@@ -67,8 +67,129 @@
   line-height: 1.6;
 }
 
-.finance-page .record-card .el-card__body {
-  padding-top: 8px;
+.finance-page .detail-card .el-card__body {
+  padding: 18px 20px 20px;
+}
+
+.finance-page .write-off-card .panel-head {
+  margin-bottom: 18px;
+}
+
+.finance-page .write-off-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.finance-page .write-off-calendar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.finance-page .write-off-calendar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.finance-page .write-off-calendar-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.finance-page .write-off-calendar-summary strong {
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.finance-page .write-off-calendar-summary span {
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.finance-page .write-off-calendar-shell {
+  overflow-x: auto;
+}
+
+.finance-page .write-off-calendar {
+  min-width: 760px;
+}
+
+.finance-page .write-off-calendar__weekdays,
+.finance-page .write-off-calendar__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.finance-page .write-off-calendar__weekdays {
+  margin-bottom: 10px;
+}
+
+.finance-page .write-off-calendar__weekdays span {
+  padding: 8px 10px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.finance-page .write-off-calendar__day {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 122px;
+  padding: 12px;
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 18px;
+  background: #ffffff;
+  transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+}
+
+.finance-page .write-off-calendar__day[data-current-month='false'] {
+  background: rgba(248, 250, 252, 0.72);
+  opacity: 0.58;
+}
+
+.finance-page .write-off-calendar__day[data-today='true'] {
+  border-color: rgba(59, 130, 246, 0.48);
+  box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.9);
+}
+
+.finance-page .write-off-calendar__day-head {
+  display: flex;
+  align-items: flex-start;
+}
+
+.finance-page .write-off-calendar__day-head span {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--app-text-primary);
+}
+
+.finance-page .write-off-calendar__day strong {
+  margin-top: auto;
+  color: #0f172a;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.finance-page .write-off-calendar__day small {
+  margin-top: auto;
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .finance-page .finance-action-drawer .el-drawer__body {
@@ -397,6 +518,7 @@
 }
 
 @media (max-width: 900px) {
+  .finance-page .write-off-card__head,
   .finance-page .panel-head--with-filter,
   .finance-page .renew-form__grid,
   .finance-page .renew-preview__grid,
@@ -408,7 +530,9 @@
   .finance-page .record-toolbar,
   .finance-page .record-item__top,
   .finance-page .renew-form__actions,
-  .finance-page .record-pagination {
+  .finance-page .record-pagination,
+  .finance-page .write-off-calendar-actions,
+  .finance-page .write-off-calendar-summary {
     flex-direction: column;
     align-items: flex-start;
   }

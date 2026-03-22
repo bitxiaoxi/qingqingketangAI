@@ -16,38 +16,36 @@
         </div>
       </el-card>
 
-      <el-card shadow="never" class="panel-card record-card">
-        <template #header>
-          <div class="panel-head panel-head--with-filter">
-            <div>
-              <h3>收费记录</h3>
-              <p>
-                {{ normalizedRecordKeyword
-                  ? `当前搜索“${recordKeyword}”，共 ${filteredRecordGroups.length} 位学生。`
-                  : `按学生聚合展示，共 ${filteredRecordGroups.length} 位学生。`
-                }}
-                <span v-if="filteredRecordGroups.length"> {{ recordPaginationSummary }} </span>
-              </p>
-            </div>
-            <div class="record-toolbar">
-              <el-select v-model="recordSort" class="record-sort">
-                <el-option
-                  v-for="option in recordSortOptions"
-                  :key="option.value"
-                  :label="option.label"
-                  :value="option.value"
-                />
-              </el-select>
-              <el-input
-                v-model="recordKeyword"
-                clearable
-                placeholder="搜索学生姓名"
-                class="record-filter"
-              />
-              <el-button type="primary" @click="renewDrawerVisible = true">续费登记</el-button>
-            </div>
+      <el-card shadow="never" class="panel-card detail-card">
+        <div class="panel-head panel-head--with-filter">
+          <div>
+            <h3>收费记录</h3>
+            <p>
+              {{ normalizedRecordKeyword
+                ? `当前搜索“${recordKeyword}”，共 ${filteredRecordGroups.length} 位学生。`
+                : `按学生聚合展示，共 ${filteredRecordGroups.length} 位学生。`
+              }}
+              <span v-if="filteredRecordGroups.length"> {{ recordPaginationSummary }} </span>
+            </p>
           </div>
-        </template>
+          <div class="record-toolbar">
+            <el-select v-model="recordSort" class="record-sort">
+              <el-option
+                v-for="option in recordSortOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+            <el-input
+              v-model="recordKeyword"
+              clearable
+              placeholder="搜索学生姓名"
+              class="record-filter"
+            />
+            <el-button type="primary" @click="renewDrawerVisible = true">续费登记</el-button>
+          </div>
+        </div>
 
         <div v-if="loading" class="page-state">财务数据加载中…</div>
         <el-alert v-else-if="error" :title="error" type="error" show-icon :closable="false" />
@@ -94,6 +92,54 @@
               :page-sizes="recordPageSizeOptions"
               :total="filteredRecordGroups.length"
             />
+          </div>
+        </div>
+      </el-card>
+
+      <el-card shadow="never" class="panel-card detail-card write-off-card">
+        <div class="panel-head write-off-card__head">
+          <div>
+            <h3>可核销金额</h3>
+            <p>按上课学生人次汇总，已核销取实际批次单价，待核销取当前消耗批次单价。</p>
+          </div>
+          <div class="write-off-calendar-actions">
+            <el-button plain :disabled="writeOffLoading" @click="changeWriteOffMonth(-1)">上一月</el-button>
+            <el-button plain :disabled="writeOffLoading || isCurrentWriteOffMonth" @click="goToCurrentWriteOffMonth">回到本月</el-button>
+            <el-button plain :disabled="writeOffLoading" @click="changeWriteOffMonth(1)">下一月</el-button>
+          </div>
+        </div>
+
+        <div v-if="loading || writeOffLoading" class="page-state">可核销金额加载中…</div>
+        <el-alert v-else-if="writeOffError" :title="writeOffError" type="error" show-icon :closable="false" />
+        <div v-else class="write-off-calendar-section">
+          <div class="write-off-calendar-summary">
+            <strong>{{ writeOffMonthTitle }}</strong>
+            <span>本月可核销 {{ formatAmount(writeOffOverview.monthAmount ?? 0) }}</span>
+          </div>
+
+          <div class="write-off-calendar-shell">
+            <div class="write-off-calendar">
+              <div class="write-off-calendar__weekdays">
+                <span v-for="weekday in writeOffWeekdayLabels" :key="weekday">{{ weekday }}</span>
+              </div>
+
+              <div class="write-off-calendar__grid">
+                <article
+                  v-for="day in writeOffCalendarDays"
+                  :key="day.key"
+                  class="write-off-calendar__day"
+                  :data-current-month="day.isCurrentMonth ? 'true' : 'false'"
+                  :data-today="day.isToday ? 'true' : 'false'"
+                >
+                  <div class="write-off-calendar__day-head">
+                    <span>{{ day.dayNumber }}</span>
+                  </div>
+
+                  <strong v-if="day.isCurrentMonth && day.amount > 0">{{ formatWriteOffCalendarAmount(day.amount) }}</strong>
+                  <small v-else-if="day.isCurrentMonth">暂无可核销</small>
+                </article>
+              </div>
+            </div>
           </div>
         </div>
       </el-card>
@@ -232,9 +278,12 @@ const route = useRoute();
 
 const loading = ref(false);
 const error = ref('');
+const writeOffLoading = ref(true);
+const writeOffError = ref('');
 const submitting = ref(false);
 const students = ref([]);
 const records = ref([]);
+const writeOffMonth = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
 const renewDrawerVisible = ref(false);
 const detailDrawerVisible = ref(false);
 const selectedRecordGroup = ref(null);
@@ -246,6 +295,12 @@ const tuitionOverview = ref({
   totalReceived: 0,
   totalConsumed: 0,
   totalPending: 0
+});
+const writeOffOverview = ref({
+  month: '',
+  monthAmount: 0,
+  monthStudentLessonCount: 0,
+  dailyAmounts: []
 });
 const animatedSummaryAmounts = reactive({
   totalReceived: 0,
@@ -269,6 +324,51 @@ const recordSortOptions = [
   { label: '收费金额从低到高', value: 'amount-asc' }
 ];
 const recordPageSizeOptions = [5, 10, 20, 50];
+const writeOffWeekdayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+const getMonthStart = (value) => {
+  const date = new Date(value);
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+};
+
+const formatWriteOffMonthParam = (value) => {
+  const date = getMonthStart(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const getWriteOffDateKey = (value) => {
+  const date = new Date(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
+const isSameCalendarDay = (left, right) => {
+  return getWriteOffDateKey(left) === getWriteOffDateKey(right);
+};
+
+const createEmptyWriteOffOverview = (monthDate = writeOffMonth.value) => ({
+  month: formatWriteOffMonthParam(monthDate),
+  monthAmount: 0,
+  monthStudentLessonCount: 0,
+  dailyAmounts: []
+});
+
+const loadWriteOffOverview = async (monthDate = writeOffMonth.value) => {
+  const targetMonth = getMonthStart(monthDate);
+  writeOffMonth.value = targetMonth;
+  writeOffLoading.value = true;
+  writeOffError.value = '';
+  try {
+    const overviewData = await api.getWriteOffOverview(formatWriteOffMonthParam(targetMonth));
+    writeOffOverview.value = {
+      ...createEmptyWriteOffOverview(targetMonth),
+      ...(overviewData ?? {})
+    };
+  } catch (requestError) {
+    writeOffError.value = normalizeError(requestError, '可核销金额加载失败');
+  } finally {
+    writeOffLoading.value = false;
+  }
+};
 
 const loadFinanceData = async () => {
   loading.value = true;
@@ -287,6 +387,7 @@ const loadFinanceData = async () => {
   } finally {
     loading.value = false;
   }
+  await loadWriteOffOverview(writeOffMonth.value);
 };
 
 const metricCards = computed(() => [
@@ -442,6 +543,68 @@ const groupedRecords = computed(() => {
     }))
     .sort(compareRecordGroups);
 });
+
+const writeOffMonthTitle = computed(() => {
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: 'long'
+  }).format(writeOffMonth.value);
+});
+
+const isCurrentWriteOffMonth = computed(() => {
+  const currentMonth = getMonthStart(new Date());
+  return currentMonth.getFullYear() === writeOffMonth.value.getFullYear()
+    && currentMonth.getMonth() === writeOffMonth.value.getMonth();
+});
+
+const writeOffDailyAmountMap = computed(() => {
+  return new Map(
+    (writeOffOverview.value.dailyAmounts ?? []).map((item) => [getWriteOffDateKey(item.date), item])
+  );
+});
+
+const writeOffCalendarDays = computed(() => {
+  const monthStart = getMonthStart(writeOffMonth.value);
+  const calendarStart = new Date(monthStart);
+  const firstWeekday = (monthStart.getDay() + 6) % 7;
+  calendarStart.setDate(monthStart.getDate() - firstWeekday);
+  const today = new Date();
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(calendarStart);
+    date.setDate(calendarStart.getDate() + index);
+    const key = getWriteOffDateKey(date);
+    const dayAmount = writeOffDailyAmountMap.value.get(key);
+    const amount = Number(dayAmount?.amount ?? 0);
+    const studentLessonCount = Number(dayAmount?.studentLessonCount ?? 0);
+
+    return {
+      key,
+      dayNumber: date.getDate(),
+      isCurrentMonth: date.getFullYear() === monthStart.getFullYear() && date.getMonth() === monthStart.getMonth(),
+      isToday: isSameCalendarDay(date, today),
+      amount: Number.isFinite(amount) ? amount : 0,
+      studentLessonCount: Number.isFinite(studentLessonCount) ? studentLessonCount : 0
+    };
+  });
+});
+
+const formatWriteOffCalendarAmount = (value) => {
+  return `${formatCurrency(value, { maximumFractionDigits: 2 })} 元`;
+};
+
+const changeWriteOffMonth = async (offset) => {
+  const nextMonth = getMonthStart(writeOffMonth.value);
+  nextMonth.setMonth(nextMonth.getMonth() + offset);
+  await loadWriteOffOverview(nextMonth);
+};
+
+const goToCurrentWriteOffMonth = async () => {
+  if (isCurrentWriteOffMonth.value) {
+    return;
+  }
+  await loadWriteOffOverview(new Date());
+};
 
 const selectedRenewStudent = computed(() => {
   return students.value.find((student) => student.id === renewForm.studentId) ?? null;

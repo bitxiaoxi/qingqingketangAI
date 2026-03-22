@@ -11,7 +11,7 @@
         class="schedule-board-alert"
       />
       <div v-else class="schedule-poster-section">
-        <div class="schedule-poster-frame">
+        <div ref="schedulePosterFrameRef" class="schedule-poster-frame">
           <div class="schedule-poster-toolbar">
             <el-button class="schedule-toolbar-button" :disabled="loading || Boolean(processingGroupKey)" @click="handleWeekChange(-1)">
               上一周
@@ -39,13 +39,14 @@
             preview-teleported
             hide-on-click-modal
           />
-          <div v-if="scheduleActionOverlays.length" class="schedule-poster-action-layer">
+          <div v-if="scheduleActionOverlays.length" class="schedule-poster-action-layer" :style="scheduleActionLayerStyle">
             <button
               v-for="action in scheduleActionOverlays"
               :key="action.groupKey"
               type="button"
               class="schedule-session-action"
               :data-state="action.state"
+              :data-size="action.size"
               :disabled="Boolean(processingGroupKey)"
               :style="action.style"
               :aria-label="action.ariaLabel"
@@ -63,7 +64,7 @@
 
 <script setup>
 import { ElMessage } from 'element-plus';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { api } from '../services/api';
 import {
   formatClock,
@@ -78,13 +79,17 @@ import {
 } from '../utils/format';
 
 const MILLISECONDS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
+const POSTER_BASE_WIDTH = 1600;
 
 const loading = ref(false);
 const error = ref('');
 const schedules = ref([]);
 const currentWeekStart = ref(getWeekStart(new Date()));
 const processingGroupKey = ref('');
+const schedulePosterFrameRef = ref(null);
+const posterActionScale = ref(1);
 let activeLoadRequestId = 0;
+let posterFrameResizeObserver = null;
 
 const escapeSvgText = (value) => {
   return String(value ?? '')
@@ -178,6 +183,11 @@ const formatHourMark = (minutes) => {
 
 const createSvgImageUrl = (svg) => {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+};
+
+const syncPosterActionScale = () => {
+  const frameWidth = schedulePosterFrameRef.value?.clientWidth ?? POSTER_BASE_WIDTH;
+  posterActionScale.value = Math.min(1, Math.max(0.35, frameWidth / POSTER_BASE_WIDTH));
 };
 
 const printSchedulePoster = () => {
@@ -618,6 +628,28 @@ const getStatusPalette = (schedule) => {
   };
 };
 
+const getScheduleActionMetrics = (cardHeight) => {
+  if (cardHeight <= 118) {
+    return {
+      size: 'compact',
+      width: 52,
+      height: 20,
+      reserve: 66,
+      fontSize: 10
+    };
+  }
+
+  return {
+    size: 'default',
+    width: 60,
+    height: 24,
+    reserve: 74,
+    fontSize: 11
+  };
+};
+
+const SCHEDULE_ACTION_INSET = 10;
+
 const getScheduleCardLayout = (schedule, layout) => {
   const dayIndex = layout.dayIndexMap.get(schedule.dateKey);
   if (dayIndex === undefined) {
@@ -636,8 +668,7 @@ const getScheduleCardLayout = (schedule, layout) => {
     x,
     y,
     width: widthValue,
-    height: heightValue,
-    compact: heightValue < 102
+    height: heightValue
   };
 };
 
@@ -653,22 +684,27 @@ const scheduleActionOverlays = computed(() => {
       if (!cardLayout) {
         return null;
       }
+      const actionMetrics = getScheduleActionMetrics(cardLayout.height);
 
       return {
         ...schedule,
         label: getScheduleActionLabel(schedule),
         ariaLabel: getScheduleActionAriaLabel(schedule),
         state: schedule.isCompleted ? 'completed' : schedule.isPartial ? 'partial' : 'pending',
+        size: actionMetrics.size,
         style: {
-          top: `${(
-            cardLayout.y
-            + (cardLayout.compact ? cardLayout.height / 2 : cardLayout.height - 26)
-          ) / layout.height * 100}%`,
-          left: `${(cardLayout.x + 14) / layout.width * 100}%`
+          top: `${(cardLayout.y + SCHEDULE_ACTION_INSET) / layout.height * 100}%`,
+          left: `${(cardLayout.x + cardLayout.width - SCHEDULE_ACTION_INSET) / layout.width * 100}%`
         }
       };
     })
     .filter(Boolean);
+});
+
+const scheduleActionLayerStyle = computed(() => {
+  return {
+    '--schedule-action-scale': `${posterActionScale.value}`
+  };
 });
 
 const schedulePosterUrl = computed(() => {
@@ -763,27 +799,33 @@ const schedulePosterUrl = computed(() => {
     const y = cardLayout.y;
     const widthValue = cardLayout.width;
     const heightValue = cardLayout.height;
+    const actionMetrics = getScheduleActionMetrics(heightValue);
+    const actionLabel = getScheduleActionLabel(schedule);
     const accentInset = 10;
     const accentLineX = x + 3;
-    const compact = cardLayout.compact;
-    const studentNamesStartY = y + 80;
-    const maxNameLines = Math.max(1, Math.min(4, Math.floor((heightValue - 92) / 14)));
-    const maxUnitsPerLine = Math.max(8, Math.floor((widthValue - 44) / 12));
-    const studentNameLines = compact
-      ? []
-      : buildStudentNameLines(schedule.studentNames, maxUnitsPerLine, maxNameLines);
+    const titleY = y + 32;
+    const actionX = x + widthValue - SCHEDULE_ACTION_INSET - actionMetrics.width;
+    const actionY = y + SCHEDULE_ACTION_INSET;
+    const timeY = y + 52;
+    const studentNamesStartY = y + 72;
+    const maxNameLines = Math.max(1, Math.min(4, Math.floor((heightValue - 70) / 14)));
+    const titleMaxUnits = Math.max(4, Math.floor((widthValue - 28 - actionMetrics.reserve) / 12));
+    const timeMaxUnits = Math.max(8, Math.floor((widthValue - 28) / 10));
+    const maxUnitsPerLine = Math.max(8, Math.floor((widthValue - 28) / 12));
+    const studentNameLines = buildStudentNameLines(schedule.studentNames, maxUnitsPerLine, maxNameLines);
     const studentNameText = studentNameLines.map((line, index) => {
-      const dy = index === 0 ? 0 : 15;
+      const dy = index === 0 ? 0 : 14;
       return `<tspan x="${x + 14}" dy="${dy}">${escapeSvgText(line)}</tspan>`;
     }).join('');
     return `
       <g filter="url(#cardShadow)">
         <rect x="${x}" y="${y}" width="${widthValue}" height="${heightValue}" rx="20" fill="${palette.fill}" stroke="${palette.stroke}" />
         <line x1="${accentLineX}" y1="${y + accentInset}" x2="${accentLineX}" y2="${y + heightValue - accentInset}" stroke="${palette.accent}" stroke-width="5" stroke-linecap="round" />
-        <rect x="${x + 14}" y="${y + 14}" width="74" height="24" rx="12" fill="${palette.badge}" />
-        <text x="${x + 51}" y="${y + 30}" text-anchor="middle" font-size="11" font-weight="600" fill="${palette.badgeText}">${escapeSvgText(schedule.timeRange)}</text>
-        <text x="${x + 14}" y="${y + 58}" font-size="17" font-weight="700" fill="#0f172a">${escapeSvgText(truncateText(schedule.subject, 14))}</text>
-        ${compact || !studentNameText ? '' : `<text x="${x + 14}" y="${studentNamesStartY}" font-size="12" fill="#475569">${studentNameText}</text>`}
+        <text x="${x + 14}" y="${titleY}" font-size="15" font-weight="700" fill="#0f172a">${escapeSvgText(truncateTextByUnits(schedule.subject, titleMaxUnits))}</text>
+        <rect x="${actionX}" y="${actionY}" width="${actionMetrics.width}" height="${actionMetrics.height}" rx="${actionMetrics.height / 2}" fill="${palette.badge}" />
+        <text x="${actionX + actionMetrics.width / 2}" y="${actionY + actionMetrics.height / 2 + actionMetrics.fontSize * 0.35}" text-anchor="middle" font-size="${actionMetrics.fontSize}" font-weight="700" fill="${palette.badgeText}">${escapeSvgText(actionLabel)}</text>
+        <text x="${x + 14}" y="${timeY}" font-size="11" font-weight="600" fill="#64748b">${escapeSvgText(truncateTextByUnits(schedule.timeRange, timeMaxUnits))}</text>
+        ${studentNameText ? `<text x="${x + 14}" y="${studentNamesStartY}" font-size="12" fill="#475569">${studentNameText}</text>` : ''}
       </g>
     `;
   }).join('');
@@ -945,7 +987,18 @@ const schedulePosterUrl = computed(() => {
 });
 
 onMounted(async () => {
+  syncPosterActionScale();
+  if (typeof ResizeObserver !== 'undefined' && schedulePosterFrameRef.value) {
+    posterFrameResizeObserver = new ResizeObserver(() => {
+      syncPosterActionScale();
+    });
+    posterFrameResizeObserver.observe(schedulePosterFrameRef.value);
+  }
   await loadSchedules();
+});
+
+onBeforeUnmount(() => {
+  posterFrameResizeObserver?.disconnect();
 });
 </script>
 
@@ -1036,18 +1089,20 @@ onMounted(async () => {
 
 .schedule-session-action {
   position: absolute;
-  transform: translateY(-50%);
+  transform: translate(-100%, 0) scale(var(--schedule-action-scale, 1));
+  transform-origin: top right;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   pointer-events: auto;
-  min-height: clamp(24px, 1.8vw, 28px);
-  padding: 0 clamp(8px, 0.9vw, 11px);
+  min-width: 60px;
+  min-height: 24px;
+  padding: 0 8px;
   border: 1px solid rgba(255, 255, 255, 0.82);
   border-radius: 999px;
   backdrop-filter: blur(16px);
   box-shadow: 0 8px 16px rgba(15, 23, 42, 0.11);
-  font-size: clamp(10px, 0.76vw, 11px);
+  font-size: 11px;
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
@@ -1061,8 +1116,15 @@ onMounted(async () => {
 }
 
 .schedule-session-action:hover {
-  transform: translateY(calc(-50% - 1px));
+  transform: translate(-100%, -1px) scale(var(--schedule-action-scale, 1));
   box-shadow: 0 10px 18px rgba(15, 23, 42, 0.14);
+}
+
+.schedule-session-action[data-size='compact'] {
+  min-width: 52px;
+  min-height: 20px;
+  padding: 0 6px;
+  font-size: 10px;
 }
 
 .schedule-session-action:disabled {

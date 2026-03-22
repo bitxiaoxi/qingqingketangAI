@@ -50,6 +50,10 @@ export const api = {
   getTuitionOverview() {
     return request('/api/students/tuition-overview');
   },
+  getWriteOffOverview(month) {
+    const suffix = month ? `?month=${encodeURIComponent(month)}` : '';
+    return request(`/api/students/write-off-overview${suffix}`);
+  },
   listPaymentRecords() {
     return request('/api/students/payment-records');
   },

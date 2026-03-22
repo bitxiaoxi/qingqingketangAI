@@ -3,11 +3,14 @@ package com.qingqingketang.student.web;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.qingqingketang.student.entity.Student;
 import com.qingqingketang.student.entity.StudentLessonBalance;
+import com.qingqingketang.student.entity.StudentLessonConsumption;
 import com.qingqingketang.student.entity.StudentPayment;
+import com.qingqingketang.student.entity.StudentSchedule;
 import com.qingqingketang.student.mapper.StudentLessonConsumptionMapper;
 import com.qingqingketang.student.mapper.StudentPaymentMapper;
-import com.qingqingketang.student.service.StudentPaymentService;
 import com.qingqingketang.student.service.StudentLessonBalanceService;
+import com.qingqingketang.student.service.StudentPaymentService;
+import com.qingqingketang.student.service.StudentScheduleService;
 import com.qingqingketang.student.service.StudentService;
 import com.qingqingketang.student.web.dto.PaymentSummary;
 import org.springframework.http.HttpStatus;
@@ -19,6 +22,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -30,9 +34,14 @@ import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -41,23 +50,28 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/students")
 @CrossOrigin(origins = "http://localhost:5173", maxAge = 3600)
 public class StudentController {
+    private static final String STATUS_PLANNED = "PLANNED";
+    private static final String STATUS_COMPLETED = "COMPLETED";
 
     private final StudentService studentService;
     private final StudentPaymentService studentPaymentService;
     private final StudentPaymentMapper studentPaymentMapper;
     private final StudentLessonBalanceService studentLessonBalanceService;
     private final StudentLessonConsumptionMapper studentLessonConsumptionMapper;
+    private final StudentScheduleService studentScheduleService;
 
     public StudentController(StudentService studentService,
                              StudentPaymentService studentPaymentService,
                              StudentPaymentMapper studentPaymentMapper,
                              StudentLessonBalanceService studentLessonBalanceService,
-                             StudentLessonConsumptionMapper studentLessonConsumptionMapper) {
+                             StudentLessonConsumptionMapper studentLessonConsumptionMapper,
+                             StudentScheduleService studentScheduleService) {
         this.studentService = studentService;
         this.studentPaymentService = studentPaymentService;
         this.studentPaymentMapper = studentPaymentMapper;
         this.studentLessonBalanceService = studentLessonBalanceService;
         this.studentLessonConsumptionMapper = studentLessonConsumptionMapper;
+        this.studentScheduleService = studentScheduleService;
     }
 
     /**
@@ -144,6 +158,170 @@ public class StudentController {
         overview.setTotalConsumed(totalConsumed);
         overview.setTotalPending(totalReceived.subtract(totalConsumed));
         return overview;
+    }
+
+    @GetMapping("/write-off-overview")
+    public WriteOffOverview getWriteOffOverview(@RequestParam(value = "month", required = false) String month) {
+        YearMonth targetMonth;
+        try {
+            targetMonth = (month == null || month.trim().isEmpty()) ? YearMonth.now() : YearMonth.parse(month.trim());
+        } catch (DateTimeParseException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "月份格式错误，应为 yyyy-MM");
+        }
+
+        LocalDate monthStartDate = targetMonth.atDay(1);
+        LocalDate nextMonthStartDate = targetMonth.plusMonths(1).atDay(1);
+        LocalDateTime monthStart = monthStartDate.atStartOfDay();
+        LocalDateTime nextMonthStart = nextMonthStartDate.atStartOfDay();
+        WriteOffOverview overview = new WriteOffOverview();
+        overview.setMonth(targetMonth.toString());
+        overview.setMonthAmount(BigDecimal.ZERO);
+        overview.setMonthStudentLessonCount(0);
+        overview.setDailyAmounts(buildEmptyWriteOffDays(monthStartDate, targetMonth.lengthOfMonth()));
+
+        List<StudentSchedule> schedules = studentScheduleService.list(
+                Wrappers.<StudentSchedule>lambdaQuery()
+                        .ge(StudentSchedule::getStartTime, monthStart)
+                        .lt(StudentSchedule::getStartTime, nextMonthStart)
+                        .in(StudentSchedule::getStatus, STATUS_PLANNED, STATUS_COMPLETED)
+        );
+        if (schedules.isEmpty()) {
+            return overview;
+        }
+
+        List<Long> studentIds = schedules.stream()
+                .map(StudentSchedule::getStudentId)
+                .distinct()
+                .collect(Collectors.toList());
+
+        List<StudentPayment> payments = studentPaymentService.list(
+                Wrappers.<StudentPayment>lambdaQuery()
+                        .in(StudentPayment::getStudentId, studentIds)
+                        .orderByAsc(StudentPayment::getStudentId)
+                        .orderByAsc(StudentPayment::getPaidAt)
+                        .orderByAsc(StudentPayment::getId)
+        );
+        Map<Long, List<StudentPayment>> paymentsByStudentId = payments.stream()
+                .collect(Collectors.groupingBy(StudentPayment::getStudentId));
+        Map<Long, StudentPayment> paymentById = payments.stream()
+                .collect(Collectors.toMap(
+                        StudentPayment::getId,
+                        payment -> payment
+                ));
+
+        List<StudentLessonConsumption> consumptions = studentLessonConsumptionMapper.selectList(
+                Wrappers.<StudentLessonConsumption>lambdaQuery()
+                        .in(StudentLessonConsumption::getStudentId, studentIds)
+        );
+        Map<Long, Integer> consumedCountByPaymentId = new HashMap<>();
+        for (StudentLessonConsumption consumption : consumptions) {
+            if (consumption.getPaymentId() == null) {
+                continue;
+            }
+            consumedCountByPaymentId.merge(consumption.getPaymentId(), 1, Integer::sum);
+        }
+
+        Map<Long, StudentLessonConsumption> consumptionByScheduleId = consumptions.stream()
+                .filter(consumption -> consumption.getScheduleId() != null)
+                .collect(Collectors.toMap(
+                        StudentLessonConsumption::getScheduleId,
+                        consumption -> consumption,
+                        (left, right) -> left
+                ));
+
+        Map<Long, BigDecimal> currentBatchPriceByStudentId = new HashMap<>();
+        for (Long studentId : studentIds) {
+            List<StudentPayment> studentPayments = paymentsByStudentId.getOrDefault(studentId, Collections.emptyList());
+            BigDecimal currentBatchPrice = BigDecimal.ZERO;
+            for (StudentPayment payment : studentPayments) {
+                int lessonCount = payment.getLessonCount() == null ? 0 : payment.getLessonCount();
+                if (lessonCount <= 0 || payment.getId() == null) {
+                    continue;
+                }
+                int consumedCount = consumedCountByPaymentId.getOrDefault(payment.getId(), 0);
+                if (consumedCount < lessonCount) {
+                    currentBatchPrice = resolvePaymentUnitPrice(payment);
+                    break;
+                }
+            }
+            currentBatchPriceByStudentId.put(studentId, currentBatchPrice);
+        }
+
+        BigDecimal monthAmount = BigDecimal.ZERO;
+        int monthStudentLessonCount = 0;
+        Map<LocalDate, WriteOffDayAmount> dailyAmountMap = new LinkedHashMap<>();
+        for (WriteOffDayAmount dayAmount : overview.getDailyAmounts()) {
+            dailyAmountMap.put(dayAmount.getDate(), dayAmount);
+        }
+
+        for (StudentSchedule schedule : schedules) {
+            LocalDateTime startTime = schedule.getStartTime();
+            if (startTime == null) {
+                continue;
+            }
+
+            StudentLessonConsumption consumption = consumptionByScheduleId.get(schedule.getId());
+            BigDecimal lessonPrice = resolveWriteOffLessonPrice(
+                    schedule,
+                    consumption,
+                    paymentById,
+                    currentBatchPriceByStudentId
+            );
+            LocalDate scheduleDate = startTime.toLocalDate();
+            WriteOffDayAmount dayAmount = dailyAmountMap.get(scheduleDate);
+            if (dayAmount != null) {
+                dayAmount.setAmount(dayAmount.getAmount().add(lessonPrice));
+                dayAmount.setStudentLessonCount(dayAmount.getStudentLessonCount() + 1);
+            }
+            monthAmount = monthAmount.add(lessonPrice);
+            monthStudentLessonCount += 1;
+        }
+
+        overview.setMonthAmount(monthAmount);
+        overview.setMonthStudentLessonCount(monthStudentLessonCount);
+        return overview;
+    }
+
+    private List<WriteOffDayAmount> buildEmptyWriteOffDays(LocalDate monthStartDate, int daysInMonth) {
+        List<WriteOffDayAmount> days = new ArrayList<>();
+        for (int index = 0; index < daysInMonth; index += 1) {
+            WriteOffDayAmount dayAmount = new WriteOffDayAmount();
+            dayAmount.setDate(monthStartDate.plusDays(index));
+            dayAmount.setAmount(BigDecimal.ZERO);
+            dayAmount.setStudentLessonCount(0);
+            days.add(dayAmount);
+        }
+        return days;
+    }
+
+    private BigDecimal resolveWriteOffLessonPrice(StudentSchedule schedule,
+                                                  StudentLessonConsumption consumption,
+                                                  Map<Long, StudentPayment> paymentById,
+                                                  Map<Long, BigDecimal> currentBatchPriceByStudentId) {
+        if (consumption != null) {
+            if (consumption.getLessonPrice() != null) {
+                return consumption.getLessonPrice();
+            }
+            if (consumption.getPaymentId() != null) {
+                return resolvePaymentUnitPrice(paymentById.get(consumption.getPaymentId()));
+            }
+        }
+        return currentBatchPriceByStudentId.getOrDefault(schedule.getStudentId(), BigDecimal.ZERO);
+    }
+
+    private BigDecimal resolvePaymentUnitPrice(StudentPayment payment) {
+        if (payment == null) {
+            return BigDecimal.ZERO;
+        }
+        if (payment.getAvgFeePerLesson() != null) {
+            return payment.getAvgFeePerLesson();
+        }
+        BigDecimal tuition = payment.getTuitionPaid() == null ? BigDecimal.ZERO : payment.getTuitionPaid();
+        int lessonCount = payment.getLessonCount() == null ? 0 : payment.getLessonCount();
+        if (lessonCount <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return tuition.divide(BigDecimal.valueOf(lessonCount), 2, RoundingMode.HALF_UP);
     }
 
     /**
@@ -643,6 +821,75 @@ public class StudentController {
 
         public void setTotalPending(BigDecimal totalPending) {
             this.totalPending = totalPending;
+        }
+    }
+
+    public static class WriteOffOverview {
+        private String month;
+        private BigDecimal monthAmount;
+        private Integer monthStudentLessonCount;
+        private List<WriteOffDayAmount> dailyAmounts;
+
+        public String getMonth() {
+            return month;
+        }
+
+        public void setMonth(String month) {
+            this.month = month;
+        }
+
+        public BigDecimal getMonthAmount() {
+            return monthAmount;
+        }
+
+        public void setMonthAmount(BigDecimal monthAmount) {
+            this.monthAmount = monthAmount;
+        }
+
+        public Integer getMonthStudentLessonCount() {
+            return monthStudentLessonCount;
+        }
+
+        public void setMonthStudentLessonCount(Integer monthStudentLessonCount) {
+            this.monthStudentLessonCount = monthStudentLessonCount;
+        }
+
+        public List<WriteOffDayAmount> getDailyAmounts() {
+            return dailyAmounts;
+        }
+
+        public void setDailyAmounts(List<WriteOffDayAmount> dailyAmounts) {
+            this.dailyAmounts = dailyAmounts;
+        }
+    }
+
+    public static class WriteOffDayAmount {
+        private LocalDate date;
+        private BigDecimal amount;
+        private Integer studentLessonCount;
+
+        public LocalDate getDate() {
+            return date;
+        }
+
+        public void setDate(LocalDate date) {
+            this.date = date;
+        }
+
+        public BigDecimal getAmount() {
+            return amount;
+        }
+
+        public void setAmount(BigDecimal amount) {
+            this.amount = amount;
+        }
+
+        public Integer getStudentLessonCount() {
+            return studentLessonCount;
+        }
+
+        public void setStudentLessonCount(Integer studentLessonCount) {
+            this.studentLessonCount = studentLessonCount;
         }
     }
 
