@@ -37,6 +37,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -44,6 +45,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
@@ -173,7 +175,7 @@ public class StudentScheduleController {
         studentScheduleService.saveBatch(schedules);
         studentLessonBalanceService.refreshStudentBalance(studentId);
         return schedules.stream()
-                .map(schedule -> toView(schedule, student.getName(), null))
+                .map(schedule -> toView(schedule, student.getName(), student.getGrade(), null))
                 .collect(Collectors.toList());
     }
 
@@ -323,22 +325,12 @@ public class StudentScheduleController {
     private void validateNoUnexpectedSameClassConflict(Long targetStudentId,
                                                        LocalDateTime targetStart,
                                                        LocalDateTime targetEnd) {
-        StudentSchedule unexpectedConflict = studentScheduleMapper.findConflicts(targetStart, targetEnd).stream()
-                .filter(conflict -> {
-                    if (sameSlot(conflict, targetStart, targetEnd)) {
-                        return conflict.getStudentId() != null && conflict.getStudentId().equals(targetStudentId);
-                    }
-                    return true;
-                })
-                .findFirst()
-                .orElse(null);
-        if (unexpectedConflict != null) {
-            if (sameSlot(unexpectedConflict, targetStart, targetEnd)) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        String.format("该学生在 %s 已经有同一时段课程，请勿重复加入同班", formatSlot(targetStart, targetEnd)));
-            }
-            throw buildConflictException(unexpectedConflict);
-        }
+        validateNoUnexpectedConflict(
+                targetStudentId,
+                targetStart,
+                targetEnd,
+                null,
+                "该学生在 %s 已经有同一时段课程，请勿重复加入同班");
     }
 
     /**
@@ -374,7 +366,8 @@ public class StudentScheduleController {
                 .map(schedule -> {
                     Student s = studentMap.get(schedule.getStudentId());
                     String studentName = s != null ? s.getName() : "未知学生";
-                    return toView(schedule, studentName, consumptionMap.get(schedule.getId()));
+                    String studentGrade = s != null ? s.getGrade() : "";
+                    return toView(schedule, studentName, studentGrade, consumptionMap.get(schedule.getId()));
                 })
                 .collect(Collectors.toList());
     }
@@ -387,7 +380,7 @@ public class StudentScheduleController {
         }
 
         return studentScheduleMapper.findPlannedByStudentId(studentId).stream()
-                .map(schedule -> toView(schedule, student.getName(), null))
+                .map(schedule -> toView(schedule, student.getName(), student.getGrade(), null))
                 .collect(Collectors.toList());
     }
 
@@ -439,7 +432,7 @@ public class StudentScheduleController {
             studentLessonBalanceService.refreshStudentBalance(schedule.getStudentId());
         }
 
-        return toView(schedule, student.getName(), consumption);
+        return toView(schedule, student.getName(), student.getGrade(), consumption);
     }
 
     /**
@@ -476,7 +469,7 @@ public class StudentScheduleController {
             studentLessonBalanceService.refreshStudentBalance(schedule.getStudentId());
         }
 
-        return toView(schedule, student.getName(), consumption);
+        return toView(schedule, student.getName(), student.getGrade(), consumption);
     }
 
     @PostMapping("/students/{studentId}/temporary-lesson")
@@ -493,13 +486,15 @@ public class StudentScheduleController {
 
         LocalDateTime targetStart = LocalDateTime.of(request.getLessonDate(), request.getStartTime());
         LocalDateTime targetEnd = LocalDateTime.of(request.getLessonDate(), request.getEndTime());
-        StudentSchedule conflict = studentScheduleMapper.findFirstConflict(targetStart, targetEnd);
-        if (conflict != null) {
-            throw buildConflictException(conflict);
-        }
         if (sameSlot(lastSchedule, targetStart, targetEnd)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "临时加课时间与课表最后一节课完全相同，请直接使用课程改时间");
         }
+        validateNoUnexpectedConflict(
+                studentId,
+                targetStart,
+                targetEnd,
+                null,
+                "该学生在 %s 已经有同一时段课程，请勿重复排课");
 
         StudentSchedule addedSchedule = new StudentSchedule();
         addedSchedule.setStudentId(studentId);
@@ -520,8 +515,8 @@ public class StudentScheduleController {
                 student.getName(),
                 formatSlot(targetStart, targetEnd),
                 formatSlot(lastSchedule.getStartTime(), lastSchedule.getEndTime())));
-        view.setAddedSchedule(toView(addedSchedule, student.getName(), null));
-        view.setRemovedSchedule(toView(lastSchedule, student.getName(), null));
+        view.setAddedSchedule(toView(addedSchedule, student.getName(), student.getGrade(), null));
+        view.setRemovedSchedule(toView(lastSchedule, student.getName(), student.getGrade(), null));
         return view;
     }
 
@@ -546,15 +541,74 @@ public class StudentScheduleController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "新时间与原课程时间一致，无需改动");
         }
 
-        StudentSchedule conflict = studentScheduleMapper.findFirstConflictExcludingId(targetStart, targetEnd, scheduleId);
-        if (conflict != null) {
-            throw buildConflictException(conflict);
-        }
+        validateNoUnexpectedConflict(
+                schedule.getStudentId(),
+                targetStart,
+                targetEnd,
+                scheduleId,
+                "该学生在 %s 已经有同一时段课程，请勿重复排课");
 
         schedule.setStartTime(targetStart);
         schedule.setEndTime(targetEnd);
         studentScheduleService.updateById(schedule);
-        return toView(schedule, student.getName(), null);
+        return toView(schedule, student.getName(), student.getGrade(), null);
+    }
+
+    @PostMapping("/{scheduleId}/reschedule-following")
+    @Transactional
+    public FutureAdjustmentView rescheduleFollowingSchedules(@PathVariable Long scheduleId,
+                                                             @Valid @RequestBody ScheduleSlotRequest request) {
+        validateSlotRequest(request);
+
+        StudentSchedule referenceSchedule = studentScheduleService.getById(scheduleId);
+        if (referenceSchedule == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "课程不存在");
+        }
+        if (!STATUS_PLANNED.equalsIgnoreCase(referenceSchedule.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "只有待上课程可以批量改时间，已销课程不受影响");
+        }
+
+        Student student = requireStudent(referenceSchedule.getStudentId());
+        LocalDateTime targetStart = LocalDateTime.of(request.getLessonDate(), request.getStartTime());
+        LocalDateTime targetEnd = LocalDateTime.of(request.getLessonDate(), request.getEndTime());
+        if (sameSlot(referenceSchedule, targetStart, targetEnd)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "新时间与生效起点课程一致，无需批量改动");
+        }
+
+        List<StudentSchedule> followingSchedules = studentScheduleMapper.findPlannedByStudentId(referenceSchedule.getStudentId())
+                .stream()
+                .filter(schedule -> isFollowingRecurringSchedule(referenceSchedule, schedule))
+                .collect(Collectors.toList());
+        if (CollectionUtils.isEmpty(followingSchedules)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "未找到可批量调整的后续待上课程");
+        }
+
+        String referenceSlot = formatSlot(referenceSchedule.getStartTime(), referenceSchedule.getEndTime());
+        List<ShiftedScheduleSlot> shiftedSchedules = followingSchedules.stream()
+                .map(schedule -> buildShiftedScheduleSlot(referenceSchedule, schedule, targetStart, targetEnd))
+                .collect(Collectors.toList());
+        validateShiftedScheduleConflicts(shiftedSchedules);
+
+        shiftedSchedules.forEach(shiftedSchedule -> {
+            shiftedSchedule.getSchedule().setStartTime(shiftedSchedule.getTargetStart());
+            shiftedSchedule.getSchedule().setEndTime(shiftedSchedule.getTargetEnd());
+            studentScheduleService.updateById(shiftedSchedule.getSchedule());
+        });
+
+        FutureAdjustmentView view = new FutureAdjustmentView();
+        view.setStudentId(student.getId());
+        view.setStudentName(student.getName());
+        view.setUpdatedCount(shiftedSchedules.size());
+        view.setMessage(String.format(
+                "已将 %s 从 %s 开始的 %d 节后续待上课程统一改时间，首节已调整为 %s，已销课课程不受影响。",
+                student.getName(),
+                referenceSlot,
+                shiftedSchedules.size(),
+                formatSlot(targetStart, targetEnd)));
+        view.setUpdatedSchedules(shiftedSchedules.stream()
+                .map(shiftedSchedule -> toView(shiftedSchedule.getSchedule(), student.getName(), student.getGrade(), null))
+                .collect(Collectors.toList()));
+        return view;
     }
 
     /**
@@ -667,6 +721,90 @@ public class StudentScheduleController {
                 && targetEnd.equals(schedule.getEndTime());
     }
 
+    private void validateNoUnexpectedConflict(Long targetStudentId,
+                                              LocalDateTime targetStart,
+                                              LocalDateTime targetEnd,
+                                              Long excludeScheduleId,
+                                              String sameSlotErrorTemplate) {
+        StudentSchedule unexpectedConflict = findUnexpectedConflict(
+                targetStudentId,
+                targetStart,
+                targetEnd,
+                excludeScheduleId);
+        if (unexpectedConflict == null) {
+            return;
+        }
+        if (sameSlot(unexpectedConflict, targetStart, targetEnd)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    String.format(sameSlotErrorTemplate, formatSlot(targetStart, targetEnd)));
+        }
+        throw buildConflictException(unexpectedConflict);
+    }
+
+    private StudentSchedule findUnexpectedConflict(Long targetStudentId,
+                                                   LocalDateTime targetStart,
+                                                   LocalDateTime targetEnd,
+                                                   Long excludeScheduleId) {
+        return studentScheduleMapper.findConflicts(targetStart, targetEnd).stream()
+                .filter(conflict -> excludeScheduleId == null || !excludeScheduleId.equals(conflict.getId()))
+                .filter(conflict -> isUnexpectedConflict(conflict, targetStudentId, targetStart, targetEnd))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private boolean isUnexpectedConflict(StudentSchedule conflict,
+                                         Long targetStudentId,
+                                         LocalDateTime targetStart,
+                                         LocalDateTime targetEnd) {
+        if (sameSlot(conflict, targetStart, targetEnd)) {
+            return conflict.getStudentId() != null && conflict.getStudentId().equals(targetStudentId);
+        }
+        return true;
+    }
+
+    private boolean isFollowingRecurringSchedule(StudentSchedule referenceSchedule, StudentSchedule candidate) {
+        return referenceSchedule != null
+                && candidate != null
+                && referenceSchedule.getId() != null
+                && candidate.getId() != null
+                && referenceSchedule.getStartTime() != null
+                && referenceSchedule.getEndTime() != null
+                && candidate.getStartTime() != null
+                && candidate.getEndTime() != null
+                && candidate.getStudentId() != null
+                && candidate.getStudentId().equals(referenceSchedule.getStudentId())
+                && !candidate.getStartTime().isBefore(referenceSchedule.getStartTime())
+                && candidate.getStartTime().getDayOfWeek().equals(referenceSchedule.getStartTime().getDayOfWeek())
+                && candidate.getStartTime().toLocalTime().equals(referenceSchedule.getStartTime().toLocalTime())
+                && candidate.getEndTime().toLocalTime().equals(referenceSchedule.getEndTime().toLocalTime())
+                && Objects.equals(candidate.getSubject(), referenceSchedule.getSubject());
+    }
+
+    private ShiftedScheduleSlot buildShiftedScheduleSlot(StudentSchedule referenceSchedule,
+                                                         StudentSchedule schedule,
+                                                         LocalDateTime targetStart,
+                                                         LocalDateTime targetEnd) {
+        long dayOffset = ChronoUnit.DAYS.between(
+                referenceSchedule.getStartTime().toLocalDate(),
+                schedule.getStartTime().toLocalDate());
+        return new ShiftedScheduleSlot(
+                schedule,
+                targetStart.plusDays(dayOffset),
+                targetEnd.plusDays(dayOffset));
+    }
+
+    private void validateShiftedScheduleConflicts(List<ShiftedScheduleSlot> shiftedSchedules) {
+        for (ShiftedScheduleSlot shiftedSchedule : shiftedSchedules) {
+            validateNoUnexpectedConflict(
+                    shiftedSchedule.getSchedule().getStudentId(),
+                    shiftedSchedule.getTargetStart(),
+                    shiftedSchedule.getTargetEnd(),
+                    shiftedSchedule.getSchedule().getId(),
+                    "该学生在 %s 已经有同一时段课程，请勿重复排课");
+        }
+    }
+
     private ResponseStatusException buildConflictException(StudentSchedule conflict) {
         Student holder = studentService.getById(conflict.getStudentId());
         String holderName = holder != null ? holder.getName() : "其他学生";
@@ -687,11 +825,15 @@ public class StudentScheduleController {
     /**
      * 把排课实体转换为前端展示对象。
      */
-    private ScheduleView toView(StudentSchedule schedule, String studentName, StudentLessonConsumption consumption) {
+    private ScheduleView toView(StudentSchedule schedule,
+                                String studentName,
+                                String studentGrade,
+                                StudentLessonConsumption consumption) {
         ScheduleView view = new ScheduleView();
         view.setId(schedule.getId());
         view.setStudentId(schedule.getStudentId());
         view.setStudentName(studentName);
+        view.setStudentGrade(studentGrade);
         view.setSubject(schedule.getSubject());
         view.setStartTime(schedule.getStartTime());
         view.setEndTime(schedule.getEndTime());
@@ -1102,6 +1244,54 @@ public class StudentScheduleController {
         }
     }
 
+    public static class FutureAdjustmentView {
+        private Long studentId;
+        private String studentName;
+        private String message;
+        private int updatedCount;
+        private List<ScheduleView> updatedSchedules = new ArrayList<>();
+
+        public Long getStudentId() {
+            return studentId;
+        }
+
+        public void setStudentId(Long studentId) {
+            this.studentId = studentId;
+        }
+
+        public String getStudentName() {
+            return studentName;
+        }
+
+        public void setStudentName(String studentName) {
+            this.studentName = studentName;
+        }
+
+        public String getMessage() {
+            return message;
+        }
+
+        public void setMessage(String message) {
+            this.message = message;
+        }
+
+        public int getUpdatedCount() {
+            return updatedCount;
+        }
+
+        public void setUpdatedCount(int updatedCount) {
+            this.updatedCount = updatedCount;
+        }
+
+        public List<ScheduleView> getUpdatedSchedules() {
+            return updatedSchedules;
+        }
+
+        public void setUpdatedSchedules(List<ScheduleView> updatedSchedules) {
+            this.updatedSchedules = updatedSchedules == null ? new ArrayList<ScheduleView>() : updatedSchedules;
+        }
+    }
+
     public static class ParsedIntentView {
         private String intent;
         private String studentName;
@@ -1274,10 +1464,35 @@ public class StudentScheduleController {
         }
     }
 
+    private static class ShiftedScheduleSlot {
+        private final StudentSchedule schedule;
+        private final LocalDateTime targetStart;
+        private final LocalDateTime targetEnd;
+
+        private ShiftedScheduleSlot(StudentSchedule schedule, LocalDateTime targetStart, LocalDateTime targetEnd) {
+            this.schedule = schedule;
+            this.targetStart = targetStart;
+            this.targetEnd = targetEnd;
+        }
+
+        public StudentSchedule getSchedule() {
+            return schedule;
+        }
+
+        public LocalDateTime getTargetStart() {
+            return targetStart;
+        }
+
+        public LocalDateTime getTargetEnd() {
+            return targetEnd;
+        }
+    }
+
     public static class ScheduleView {
         private Long id;
         private Long studentId;
         private String studentName;
+        private String studentGrade;
         private String subject;
         private LocalDateTime startTime;
         private LocalDateTime endTime;
@@ -1306,6 +1521,14 @@ public class StudentScheduleController {
 
         public void setStudentName(String studentName) {
             this.studentName = studentName;
+        }
+
+        public String getStudentGrade() {
+            return studentGrade;
+        }
+
+        public void setStudentGrade(String studentGrade) {
+            this.studentGrade = studentGrade;
         }
 
         public String getSubject() {

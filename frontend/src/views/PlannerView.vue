@@ -37,6 +37,12 @@
             <strong>平移既有课程</strong>
             <small>把一节待上课程改到新的日期和时段</small>
           </button>
+
+          <button type="button" class="planner-mode planner-mode--future" @click="openAdjustDialog('future')">
+            <span class="planner-mode__tag">后续改时间</span>
+            <strong>批量改后续课程</strong>
+            <small>从一节待上课开始，统一调整后续同周期课程</small>
+          </button>
         </div>
       </div>
     </el-card>
@@ -301,9 +307,9 @@
               <small>这里只显示还未销课的正式课。</small>
             </article>
             <article class="adjustment-meta-card">
-              <span>课表最后一节</span>
+              <span>{{ adjustLastMetaTitle }}</span>
               <strong>{{ adjustLastSchedule ? formatScheduleOptionLabel(adjustLastSchedule) : '暂未生成正式课表' }}</strong>
-              <small>临时加课时，系统会自动移除这一节。</small>
+              <small>{{ adjustLastMetaHint }}</small>
             </article>
           </div>
 
@@ -365,7 +371,7 @@
           <p class="dialog-field-hint">系统会先校验时间冲突，再完成“补 1 节、减 1 节”的替换动作。</p>
         </section>
 
-        <section v-else class="dialog-block">
+        <section v-else-if="adjustMode === 'reschedule'" class="dialog-block">
           <div class="dialog-block__head">
             <h4>把一节课改到新时间</h4>
             <small>适合学生请假、临时顺延或与家长重新约课。</small>
@@ -433,10 +439,78 @@
           <p class="dialog-field-hint">课程改时间不会新增或减少课时，只会更新这节课的具体落位。</p>
         </section>
 
+        <section v-else class="dialog-block">
+          <div class="dialog-block__head">
+            <h4>把后续课程统一改到新时间</h4>
+            <small>适合固定上课时段整体变更，已销课课程不会受影响。</small>
+          </div>
+
+          <el-form-item label="生效起点课程" required>
+            <el-select
+              v-model="futureRescheduleForm.scheduleId"
+              filterable
+              placeholder="请选择开始批量调整的课程"
+              :loading="adjustLoadingSchedules"
+            >
+              <el-option
+                v-for="schedule in plannedSchedules"
+                :key="schedule.id"
+                :label="formatScheduleOptionLabel(schedule)"
+                :value="schedule.id"
+              />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="调整后首节日期" required>
+            <el-date-picker
+              v-model="futureRescheduleForm.lessonDate"
+              type="date"
+              format="YYYY-MM-DD"
+              value-format="YYYY-MM-DD"
+              placeholder="选择新的首节上课日期"
+            />
+          </el-form-item>
+
+          <div class="dialog-grid">
+            <el-form-item label="开始时间" required>
+              <el-time-picker
+                v-model="futureRescheduleForm.startTime"
+                value-format="HH:mm"
+                format="HH:mm"
+                placeholder="新的开始时间"
+              />
+            </el-form-item>
+
+            <el-form-item label="结束时间" required>
+              <el-time-picker
+                v-model="futureRescheduleForm.endTime"
+                value-format="HH:mm"
+                format="HH:mm"
+                placeholder="新的结束时间"
+              />
+            </el-form-item>
+          </div>
+
+          <div class="adjustment-swap-card">
+            <div class="adjustment-swap-card__block">
+              <span>当前起点</span>
+              <strong>{{ selectedFutureRescheduleSchedule ? formatScheduleOptionLabel(selectedFutureRescheduleSchedule) : '请选择一节课程' }}</strong>
+              <small>系统会从这节课开始，匹配后续同一固定时段的待上课程。</small>
+            </div>
+            <div class="adjustment-swap-card__block">
+              <span>调整后首节</span>
+              <strong>{{ futureRescheduleTargetLabel }}</strong>
+              <small>{{ futureRescheduleCandidates.length ? `预计同步更新 ${futureRescheduleCandidates.length} 节待上课程` : '请选择生效起点课程后再预估影响范围' }}</small>
+            </div>
+          </div>
+
+          <p class="dialog-field-hint">系统只会修改这节课及其后续同一固定时段的待上课程，不会影响已经销课的记录。</p>
+        </section>
+
         <div class="schedule-preview schedule-preview--adjust">
           <span class="schedule-preview__eyebrow">操作预览</span>
-          <strong>{{ adjustMode === 'temporary' ? temporaryPreview : reschedulePreview }}</strong>
-          <small>{{ adjustMode === 'temporary' ? temporaryPreviewHint : reschedulePreviewHint }}</small>
+          <strong>{{ adjustPreview }}</strong>
+          <small>{{ adjustPreviewHint }}</small>
         </div>
       </el-form>
 
@@ -568,6 +642,12 @@ const rescheduleForm = reactive({
   startTime: '19:00',
   endTime: '20:30'
 });
+const futureRescheduleForm = reactive({
+  scheduleId: null,
+  lessonDate: formatDateParam(new Date()),
+  startTime: '19:00',
+  endTime: '20:30'
+});
 
 const assistantThreadRef = ref(null);
 const assistantMessages = ref([]);
@@ -639,6 +719,17 @@ const buildSlotLabel = (lessonDate, startTime, endTime) => {
   return `${lessonDate} ${startTime}-${endTime}`;
 };
 
+const scheduleMatchesRecurringTemplate = (reference, candidate) => {
+  if (!reference?.startTime || !reference?.endTime || !candidate?.startTime || !candidate?.endTime) {
+    return false;
+  }
+  return reference.subject === candidate.subject
+    && new Date(candidate.startTime).getTime() >= new Date(reference.startTime).getTime()
+    && getWeekdayValue(candidate.startTime) === getWeekdayValue(reference.startTime)
+    && formatClock(candidate.startTime) === formatClock(reference.startTime)
+    && formatClock(candidate.endTime) === formatClock(reference.endTime);
+};
+
 const getWeekdayValue = (value) => {
   const day = new Date(value).getDay();
   return day === 0 ? 7 : day;
@@ -693,6 +784,7 @@ const loadPlannedSchedules = async (studentId = adjustStudentId.value) => {
   if (!studentId) {
     plannedSchedules.value = [];
     rescheduleForm.scheduleId = null;
+    futureRescheduleForm.scheduleId = null;
     return;
   }
 
@@ -703,10 +795,14 @@ const loadPlannedSchedules = async (studentId = adjustStudentId.value) => {
     if (!plannedSchedules.value.some((schedule) => schedule.id === rescheduleForm.scheduleId)) {
       rescheduleForm.scheduleId = plannedSchedules.value[0]?.id ?? null;
     }
+    if (!plannedSchedules.value.some((schedule) => schedule.id === futureRescheduleForm.scheduleId)) {
+      futureRescheduleForm.scheduleId = plannedSchedules.value[0]?.id ?? null;
+    }
     applyScheduleTimeDefaults(plannedSchedules.value[plannedSchedules.value.length - 1] ?? null);
   } catch (requestError) {
     plannedSchedules.value = [];
     rescheduleForm.scheduleId = null;
+    futureRescheduleForm.scheduleId = null;
     ElMessage.error(normalizeError(requestError, '待上课程加载失败'));
   } finally {
     adjustLoadingSchedules.value = false;
@@ -787,8 +883,29 @@ const selectedAdjustStudent = computed(() => {
 const adjustLastSchedule = computed(() => {
   return plannedSchedules.value[plannedSchedules.value.length - 1] ?? null;
 });
+const adjustLastMetaTitle = computed(() => {
+  return adjustMode.value === 'temporary' ? '课表最后一节' : '当前最晚一节';
+});
+const adjustLastMetaHint = computed(() => {
+  if (adjustMode.value === 'temporary') {
+    return '临时加课时，系统会自动移除这一节。';
+  }
+  if (adjustMode.value === 'future') {
+    return '批量改时间只会调整匹配到的后续待上课程。';
+  }
+  return '这里只做当前课表参考，不会自动移除。';
+});
 const selectedRescheduleSchedule = computed(() => {
   return plannedSchedules.value.find((schedule) => schedule.id === rescheduleForm.scheduleId) ?? null;
+});
+const selectedFutureRescheduleSchedule = computed(() => {
+  return plannedSchedules.value.find((schedule) => schedule.id === futureRescheduleForm.scheduleId) ?? null;
+});
+const futureRescheduleCandidates = computed(() => {
+  if (!selectedFutureRescheduleSchedule.value) {
+    return [];
+  }
+  return plannedSchedules.value.filter((schedule) => scheduleMatchesRecurringTemplate(selectedFutureRescheduleSchedule.value, schedule));
 });
 
 const createPreview = computed(() => {
@@ -837,6 +954,9 @@ const temporaryTargetLabel = computed(() => {
 const rescheduleTargetLabel = computed(() => {
   return buildSlotLabel(rescheduleForm.lessonDate, rescheduleForm.startTime, rescheduleForm.endTime);
 });
+const futureRescheduleTargetLabel = computed(() => {
+  return buildSlotLabel(futureRescheduleForm.lessonDate, futureRescheduleForm.startTime, futureRescheduleForm.endTime);
+});
 const temporaryPreview = computed(() => {
   const studentLabel = selectedAdjustStudent.value
     ? `${selectedAdjustStudent.value.name} · ${selectedAdjustStudent.value.grade}`
@@ -873,22 +993,87 @@ const reschedulePreviewHint = computed(() => {
   }
   return '改时间只会调整这一节课的日期和时段，不会新增或减少课时。';
 });
+const futureReschedulePreview = computed(() => {
+  const studentLabel = selectedAdjustStudent.value
+    ? `${selectedAdjustStudent.value.name} · ${selectedAdjustStudent.value.grade}`
+    : '未选择学生';
+  const sourceLabel = selectedFutureRescheduleSchedule.value
+    ? formatScheduleOptionLabel(selectedFutureRescheduleSchedule.value)
+    : '未选择生效起点课程';
+  const affectedCount = futureRescheduleCandidates.value.length;
+  return `${studentLabel} · 从 ${sourceLabel} 开始，统一改到 ${futureRescheduleTargetLabel.value} · 预计影响 ${affectedCount} 节待上课`;
+});
+const futureReschedulePreviewHint = computed(() => {
+  if (!selectedAdjustStudent.value) {
+    return '先选学生，再选择后续课程改时间的生效起点。';
+  }
+  if (!selectedFutureRescheduleSchedule.value) {
+    return '请选择一节待上课程作为后续改时间的起点。';
+  }
+  if (!futureRescheduleCandidates.value.length) {
+    return '当前没有可批量调整的后续课程。';
+  }
+  return '系统会只修改所选课程及其后续同一固定时段的待上课程，已销课课程不受影响。';
+});
 const adjustDialogTitle = computed(() => {
-  return adjustMode.value === 'temporary' ? '临时加课' : '课程改时间';
+  if (adjustMode.value === 'temporary') {
+    return '临时加课';
+  }
+  if (adjustMode.value === 'future') {
+    return '后续课程改时间';
+  }
+  return '课程改时间';
 });
 const adjustBannerTitle = computed(() => {
-  return adjustMode.value === 'temporary' ? '临时加课，不改总课时' : '课程改时间，直接更新落位';
+  if (adjustMode.value === 'temporary') {
+    return '临时加课，不改总课时';
+  }
+  if (adjustMode.value === 'future') {
+    return '后续统一改时间，不动已销课';
+  }
+  return '课程改时间，直接更新落位';
 });
 const adjustBannerDescription = computed(() => {
-  return adjustMode.value === 'temporary'
-    ? '补一节临时课时，系统会自动移除末尾课程，适合补课和临时插课。'
-    : '把一节待上课程直接改到新的日期和时段，适合请假顺延或重新约课。';
+  if (adjustMode.value === 'temporary') {
+    return '补一节临时课时，系统会自动移除末尾课程，适合补课和临时插课。';
+  }
+  if (adjustMode.value === 'future') {
+    return '从一节待上课开始，统一调整后续同一固定时段的课程，适合整体换上课时间。';
+  }
+  return '把一节待上课程直接改到新的日期和时段，适合请假顺延或重新约课。';
 });
 const adjustMiddleStepLabel = computed(() => {
-  return adjustMode.value === 'temporary' ? '设时段' : '选课程';
+  if (adjustMode.value === 'temporary') {
+    return '设时段';
+  }
+  return '选课程';
 });
 const adjustSubmitLabel = computed(() => {
-  return adjustMode.value === 'temporary' ? '确认临时加课' : '确认改时间';
+  if (adjustMode.value === 'temporary') {
+    return '确认临时加课';
+  }
+  if (adjustMode.value === 'future') {
+    return '确认批量改时间';
+  }
+  return '确认改时间';
+});
+const adjustPreview = computed(() => {
+  if (adjustMode.value === 'temporary') {
+    return temporaryPreview.value;
+  }
+  if (adjustMode.value === 'future') {
+    return futureReschedulePreview.value;
+  }
+  return reschedulePreview.value;
+});
+const adjustPreviewHint = computed(() => {
+  if (adjustMode.value === 'temporary') {
+    return temporaryPreviewHint.value;
+  }
+  if (adjustMode.value === 'future') {
+    return futureReschedulePreviewHint.value;
+  }
+  return reschedulePreviewHint.value;
 });
 
 const assistantPlaceholder = computed(() => {
@@ -940,6 +1125,10 @@ const resetAdjustForms = (studentId = getRouteStudentId(), mode = 'temporary') =
   rescheduleForm.lessonDate = formatDateParam(new Date());
   rescheduleForm.startTime = '19:00';
   rescheduleForm.endTime = '20:30';
+  futureRescheduleForm.scheduleId = null;
+  futureRescheduleForm.lessonDate = formatDateParam(new Date());
+  futureRescheduleForm.startTime = '19:00';
+  futureRescheduleForm.endTime = '20:30';
 };
 
 const openCreateDialog = (studentId = getRouteStudentId()) => {
@@ -1069,9 +1258,41 @@ const submitReschedule = async () => {
   }
 };
 
+const submitFutureReschedule = async () => {
+  if (!adjustStudentId.value || !futureRescheduleForm.scheduleId) {
+    ElMessage.error('请先选择后续改时间的生效起点课程');
+    return;
+  }
+  if (!futureRescheduleForm.lessonDate || !futureRescheduleForm.startTime || !futureRescheduleForm.endTime) {
+    ElMessage.error('请完整填写新的上课时间');
+    return;
+  }
+
+  adjustSubmitting.value = true;
+  try {
+    const result = await api.rescheduleFollowingSchedules(futureRescheduleForm.scheduleId, {
+      lessonDate: futureRescheduleForm.lessonDate,
+      startTime: futureRescheduleForm.startTime,
+      endTime: futureRescheduleForm.endTime
+    });
+    await loadPlannedSchedules(adjustStudentId.value);
+    adjustDialogVisible.value = false;
+    const updatedCount = Number(result?.updatedCount ?? result?.updatedSchedules?.length ?? 0);
+    ElMessage.success(updatedCount > 0 ? `已更新 ${updatedCount} 节后续课程` : (result?.message ?? '后续课程时间已更新'));
+  } catch (requestError) {
+    ElMessage.error(normalizeError(requestError, '后续课程改时间失败'));
+  } finally {
+    adjustSubmitting.value = false;
+  }
+};
+
 const submitAdjustAction = async () => {
   if (adjustMode.value === 'temporary') {
     await submitTemporaryLesson();
+    return;
+  }
+  if (adjustMode.value === 'future') {
+    await submitFutureReschedule();
     return;
   }
   await submitReschedule();
@@ -1211,6 +1432,19 @@ watch(
 );
 
 watch(
+  () => futureRescheduleForm.scheduleId,
+  (scheduleId) => {
+    const schedule = plannedSchedules.value.find((item) => item.id === scheduleId);
+    if (!schedule?.startTime || !schedule?.endTime) {
+      return;
+    }
+    futureRescheduleForm.lessonDate = formatDateParam(schedule.startTime);
+    futureRescheduleForm.startTime = formatClock(schedule.startTime);
+    futureRescheduleForm.endTime = formatClock(schedule.endTime);
+  }
+);
+
+watch(
   () => route.query.action,
   (action) => {
     if (action === 'create') {
@@ -1298,7 +1532,7 @@ onMounted(async () => {
 
 .planner-mode-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 14px;
 }
 
@@ -1361,6 +1595,11 @@ onMounted(async () => {
 .planner-mode--reschedule {
   border-color: rgba(196, 181, 253, 0.78);
   background: linear-gradient(145deg, rgba(237, 233, 254, 0.84), rgba(255, 255, 255, 0.96));
+}
+
+.planner-mode--future {
+  border-color: rgba(251, 191, 36, 0.78);
+  background: linear-gradient(145deg, rgba(254, 243, 199, 0.84), rgba(255, 255, 255, 0.96));
 }
 
 .schedule-dialog :deep(.el-dialog) {

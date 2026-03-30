@@ -87,6 +87,12 @@ export const api = {
       body: JSON.stringify(body)
     });
   },
+  rescheduleFollowingSchedules(scheduleId, body) {
+    return request(`/api/schedules/${scheduleId}/reschedule-following`, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+  },
   completeSchedule(scheduleId) {
     return request(`/api/schedules/${scheduleId}/complete`, {
       method: 'POST'

@@ -341,6 +341,7 @@ const normalizedSchedules = computed(() => {
         ...schedule,
         scheduleId: schedule.id,
         studentName: schedule.studentName ?? '未命名',
+        studentGrade: schedule.studentGrade ?? '',
         subject: schedule.subject ?? '正式课',
         timeRange: formatTimeRange(schedule.startTime, schedule.endTime),
         isCompleted
@@ -360,6 +361,9 @@ const groupedSchedules = computed(() => {
       existingGroup.scheduleIds.push(schedule.scheduleId);
       existingGroup.studentIds.add(schedule.studentId ?? schedule.scheduleId);
       existingGroup.studentNames.add(schedule.studentName);
+      if (schedule.studentGrade) {
+        existingGroup.studentGrades.add(schedule.studentGrade);
+      }
       if (schedule.isCompleted) {
         existingGroup.completedScheduleIds.push(schedule.scheduleId);
       } else {
@@ -380,13 +384,15 @@ const groupedSchedules = computed(() => {
       completedScheduleIds: schedule.isCompleted ? [schedule.scheduleId] : [],
       pendingScheduleIds: schedule.isCompleted ? [] : [schedule.scheduleId],
       studentIds: new Set([schedule.studentId ?? schedule.scheduleId]),
-      studentNames: new Set([schedule.studentName])
+      studentNames: new Set([schedule.studentName]),
+      studentGrades: schedule.studentGrade ? new Set([schedule.studentGrade]) : new Set()
     });
   });
 
   return Array.from(groupMap.values())
     .map((group) => {
       const studentNames = Array.from(group.studentNames);
+      const studentGrades = Array.from(group.studentGrades);
       const participantCount = group.studentIds.size || group.scheduleIds.length;
       const completedCount = group.completedScheduleIds.length;
       const pendingCount = group.pendingScheduleIds.length;
@@ -407,6 +413,8 @@ const groupedSchedules = computed(() => {
         participantCount,
         participantLabel: `共 ${participantCount} 位学员`,
         studentNames,
+        studentGrades,
+        gradeLabel: studentGrades.join('、'),
         studentNamesLabel: studentNames.join('、'),
         completedCount,
         pendingCount,
@@ -807,12 +815,15 @@ const schedulePosterUrl = computed(() => {
     const actionX = x + widthValue - SCHEDULE_ACTION_INSET - actionMetrics.width;
     const actionY = y + SCHEDULE_ACTION_INSET;
     const timeY = y + 52;
-    const studentNamesStartY = y + 72;
-    const maxNameLines = Math.max(1, Math.min(4, Math.floor((heightValue - 70) / 14)));
+    const gradeY = y + 69;
+    const studentNamesStartY = y + 88;
+    const maxNameLines = Math.max(1, Math.min(4, Math.floor((heightValue - 86) / 14)));
     const titleMaxUnits = Math.max(4, Math.floor((widthValue - 28 - actionMetrics.reserve) / 12));
     const timeMaxUnits = Math.max(8, Math.floor((widthValue - 28) / 10));
+    const gradeMaxUnits = Math.max(6, Math.floor((widthValue - 28) / 11));
     const maxUnitsPerLine = Math.max(8, Math.floor((widthValue - 28) / 12));
     const studentNameLines = buildStudentNameLines(schedule.studentNames, maxUnitsPerLine, maxNameLines);
+    const gradeText = schedule.gradeLabel ? truncateTextByUnits(schedule.gradeLabel, gradeMaxUnits) : '';
     const studentNameText = studentNameLines.map((line, index) => {
       const dy = index === 0 ? 0 : 14;
       return `<tspan x="${x + 14}" dy="${dy}">${escapeSvgText(line)}</tspan>`;
@@ -825,6 +836,7 @@ const schedulePosterUrl = computed(() => {
         <rect x="${actionX}" y="${actionY}" width="${actionMetrics.width}" height="${actionMetrics.height}" rx="${actionMetrics.height / 2}" fill="${palette.badge}" />
         <text x="${actionX + actionMetrics.width / 2}" y="${actionY + actionMetrics.height / 2 + actionMetrics.fontSize * 0.35}" text-anchor="middle" font-size="${actionMetrics.fontSize}" font-weight="700" fill="${palette.badgeText}">${escapeSvgText(actionLabel)}</text>
         <text x="${x + 14}" y="${timeY}" font-size="11" font-weight="600" fill="#64748b">${escapeSvgText(truncateTextByUnits(schedule.timeRange, timeMaxUnits))}</text>
+        ${gradeText ? `<text x="${x + 14}" y="${gradeY}" font-size="11" font-weight="700" fill="#334155">${escapeSvgText(gradeText)}</text>` : ''}
         ${studentNameText ? `<text x="${x + 14}" y="${studentNamesStartY}" font-size="12" fill="#475569">${studentNameText}</text>` : ''}
       </g>
     `;

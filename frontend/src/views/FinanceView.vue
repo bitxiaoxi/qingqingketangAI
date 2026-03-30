@@ -98,8 +98,22 @@
 
       <el-card shadow="never" class="panel-card detail-card write-off-card">
         <div class="panel-head write-off-card__head">
-          <div>
-            <h3>可核销金额</h3>
+          <div class="write-off-card__title-block">
+            <div class="write-off-card__title-row">
+              <h3>可核销金额</h3>
+              <div class="write-off-card__highlights">
+                <div class="write-off-card__highlight">
+                  <span>当前月份</span>
+                  <strong>{{ writeOffMonthTitle }}</strong>
+                </div>
+                <div class="write-off-card__highlight write-off-card__highlight--amount">
+                  <span>本月可核销金额</span>
+                  <strong>
+                    {{ loading || writeOffLoading ? '加载中…' : writeOffError ? '--' : formatAmount(writeOffOverview.monthAmount ?? 0) }}
+                  </strong>
+                </div>
+              </div>
+            </div>
             <p>按上课学生人次汇总，已核销取实际批次单价，待核销取当前消耗批次单价。</p>
           </div>
           <div class="write-off-calendar-actions">
@@ -112,17 +126,6 @@
         <div v-if="loading || writeOffLoading" class="page-state">可核销金额加载中…</div>
         <el-alert v-else-if="writeOffError" :title="writeOffError" type="error" show-icon :closable="false" />
         <div v-else class="write-off-calendar-section">
-          <div class="write-off-calendar-summary">
-            <div class="write-off-calendar-summary__month">
-              <span>当前账期</span>
-              <strong>{{ writeOffMonthTitle }}</strong>
-            </div>
-            <div class="write-off-calendar-summary__amount">
-              <span>本月可核销金额</span>
-              <strong>{{ formatAmount(writeOffOverview.monthAmount ?? 0) }}</strong>
-            </div>
-          </div>
-
           <div class="write-off-calendar-shell">
             <div class="write-off-calendar">
               <div class="write-off-calendar__weekdays">

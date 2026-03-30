@@ -111,23 +111,71 @@
   gap: 16px;
   padding: 22px 24px 18px;
   border: 1px solid var(--write-off-border);
-  border-radius: var(--write-off-radius-lg) var(--write-off-radius-lg) 20px 20px;
+  border-radius: var(--write-off-radius-lg);
   background: var(--write-off-panel-bg);
   box-shadow: var(--write-off-shadow-panel);
 }
 
-.finance-page .write-off-card__head > div:first-child {
+.finance-page .write-off-card__title-block {
+  flex: 1;
   min-width: 0;
+}
+
+.finance-page .write-off-card__title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px 22px;
 }
 
 .finance-page .write-off-card__head h3 {
   font-size: 23px;
   letter-spacing: -0.01em;
+  flex-shrink: 0;
 }
 
 .finance-page .write-off-card__head p {
   max-width: 640px;
   color: #64748b;
+}
+
+.finance-page .write-off-card__highlights {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+
+.finance-page .write-off-card__highlight {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.finance-page .write-off-card__highlight span {
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.finance-page .write-off-card__highlight strong {
+  color: #0f172a;
+  font-size: 18px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.finance-page .write-off-card__highlight--amount {
+  padding-left: 18px;
+  border-left: 1px solid rgba(203, 213, 225, 0.82);
+}
+
+.finance-page .write-off-card__highlight--amount strong {
+  font-size: 20px;
 }
 
 .finance-page .write-off-calendar-actions {
@@ -158,57 +206,6 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  margin-top: -8px;
-}
-
-.finance-page .write-off-calendar-summary {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 18px;
-  align-items: center;
-  padding: 18px 24px 20px;
-  border: 1px solid var(--write-off-border);
-  border-top: 0;
-  border-radius: 0 0 var(--write-off-radius-lg) var(--write-off-radius-lg);
-  background: var(--write-off-panel-bg-soft);
-  box-shadow: var(--write-off-shadow-panel);
-}
-
-.finance-page .write-off-calendar-summary__month,
-.finance-page .write-off-calendar-summary__amount {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.finance-page .write-off-calendar-summary__month span,
-.finance-page .write-off-calendar-summary__amount span {
-  color: #94a3b8;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.4;
-  letter-spacing: 0.05em;
-}
-
-.finance-page .write-off-calendar-summary__month strong {
-  font-size: 26px;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
-}
-
-.finance-page .write-off-calendar-summary__amount {
-  align-items: flex-end;
-  padding-left: 22px;
-  border-left: 1px solid rgba(203, 213, 225, 0.82);
-}
-
-.finance-page .write-off-calendar-summary__amount strong {
-  font-size: 28px;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
-  color: #0f172a;
 }
 
 .finance-page .write-off-calendar-shell {
@@ -741,24 +738,19 @@
 
   .finance-page .write-off-card__head {
     padding: 20px 18px 16px;
-    border-radius: 22px 22px 18px 18px;
+    border-radius: 22px;
   }
 
-  .finance-page .write-off-calendar-section {
-    margin-top: -4px;
-  }
-
-  .finance-page .write-off-calendar-summary {
-    grid-template-columns: 1fr;
-    padding: 16px 18px 18px;
-    border-radius: 0 0 22px 22px;
-  }
-
-  .finance-page .write-off-calendar-summary__amount {
+  .finance-page .write-off-card__title-row {
     align-items: flex-start;
+  }
+
+  .finance-page .write-off-card__highlights {
+    width: 100%;
+  }
+
+  .finance-page .write-off-card__highlight--amount {
     padding-left: 0;
-    padding-top: 12px;
-    border-top: 1px solid rgba(203, 213, 225, 0.82);
     border-left: 0;
   }
 
