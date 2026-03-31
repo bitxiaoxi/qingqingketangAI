@@ -28,8 +28,14 @@
 
           <button type="button" class="planner-mode planner-mode--temporary" @click="openAdjustDialog('temporary')">
             <span class="planner-mode__tag">临时加课</span>
-            <strong>补入一节课</strong>
+            <strong>补课</strong>
             <small>选定一个新时段补课，并自动移除末尾课程</small>
+          </button>
+
+          <button type="button" class="planner-mode planner-mode--leave" @click="openAdjustDialog('leave')">
+            <span class="planner-mode__tag">请假顺延</span>
+            <strong>请假</strong>
+            <small>移除最近一节待上课，并自动在排课末尾补 1 节</small>
           </button>
 
           <button type="button" class="planner-mode planner-mode--reschedule" @click="openAdjustDialog('reschedule')">
@@ -273,7 +279,7 @@
         <div class="dialog-steps">
           <span class="dialog-step">1. 选学生</span>
           <span class="dialog-step">2. {{ adjustMiddleStepLabel }}</span>
-          <span class="dialog-step">3. 确认时间</span>
+          <span class="dialog-step">3. {{ adjustFinalStepLabel }}</span>
         </div>
       </div>
 
@@ -307,9 +313,9 @@
               <small>这里只显示还未销课的正式课。</small>
             </article>
             <article class="adjustment-meta-card">
-              <span>{{ adjustLastMetaTitle }}</span>
-              <strong>{{ adjustLastSchedule ? formatScheduleOptionLabel(adjustLastSchedule) : '暂未生成正式课表' }}</strong>
-              <small>{{ adjustLastMetaHint }}</small>
+              <span>{{ adjustMetaTitle }}</span>
+              <strong>{{ adjustMetaSchedule ? formatScheduleOptionLabel(adjustMetaSchedule) : '暂未生成正式课表' }}</strong>
+              <small>{{ adjustMetaHint }}</small>
             </article>
           </div>
 
@@ -369,6 +375,28 @@
           </div>
 
           <p class="dialog-field-hint">系统会先校验时间冲突，再完成“补 1 节、减 1 节”的替换动作。</p>
+        </section>
+
+        <section v-else-if="adjustMode === 'leave'" class="dialog-block">
+          <div class="dialog-block__head">
+            <h4>请假顺延 1 节</h4>
+            <small>适合学生本次请假，系统会移除最近一节待上课，并把这一节顺延到课表末尾。</small>
+          </div>
+
+          <div class="adjustment-swap-card">
+            <div class="adjustment-swap-card__block">
+              <span>本次请假移除</span>
+              <strong>{{ adjustFirstSchedule ? formatScheduleOptionLabel(adjustFirstSchedule) : '暂未找到待上课程' }}</strong>
+              <small>{{ adjustFirstSchedule ? '系统会直接删除这节最近待上课。' : '请先为该学生生成正式课表。' }}</small>
+            </div>
+            <div class="adjustment-swap-card__block">
+              <span>自动顺延到末尾</span>
+              <strong>{{ leaveTargetScheduleLabel }}</strong>
+              <small>{{ leaveTargetSchedule ? '系统会按当前课表规律，在末尾补回 1 节。' : '当前还无法推算新的末尾课程。' }}</small>
+            </div>
+          </div>
+
+          <p class="dialog-field-hint">请假顺延不会增减课时，只会把最近一节待上课顺延到课表末尾。</p>
         </section>
 
         <section v-else-if="adjustMode === 'reschedule'" class="dialog-block">
@@ -719,6 +747,23 @@ const buildSlotLabel = (lessonDate, startTime, endTime) => {
   return `${lessonDate} ${startTime}-${endTime}`;
 };
 
+const buildDateTimeFromClock = (dateValue, clock) => {
+  const [hours, minutes] = String(clock ?? '').split(':').map((value) => Number(value));
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+    return null;
+  }
+  const date = new Date(dateValue);
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    hours,
+    minutes,
+    0,
+    0
+  );
+};
+
 const scheduleMatchesRecurringTemplate = (reference, candidate) => {
   if (!reference?.startTime || !reference?.endTime || !candidate?.startTime || !candidate?.endTime) {
     return false;
@@ -770,6 +815,54 @@ const buildSameClassSlotTemplates = (schedules) => {
   });
   const recurringTemplates = uniqueTemplates.filter((template) => template.count >= 2);
   return recurringTemplates.length ? recurringTemplates : uniqueTemplates;
+};
+
+const buildNextRecurringSchedule = (schedules) => {
+  if (!Array.isArray(schedules) || !schedules.length) {
+    return null;
+  }
+
+  const lastSchedule = schedules[schedules.length - 1];
+  if (!lastSchedule?.startTime || !lastSchedule?.endTime) {
+    return null;
+  }
+
+  const templates = buildSameClassSlotTemplates(schedules);
+  if (!templates.length) {
+    return null;
+  }
+
+  const startDate = new Date(lastSchedule.startTime);
+  startDate.setHours(0, 0, 0, 0);
+  startDate.setDate(startDate.getDate() + 1);
+
+  let weekStart = new Date(startDate);
+  const weekday = weekStart.getDay() === 0 ? 7 : weekStart.getDay();
+  weekStart.setDate(weekStart.getDate() - weekday + 1);
+
+  for (let weekOffset = 0; weekOffset < 60; weekOffset += 1) {
+    for (const template of templates) {
+      const candidateDate = new Date(weekStart);
+      candidateDate.setDate(weekStart.getDate() + template.weekday - 1);
+      candidateDate.setHours(0, 0, 0, 0);
+      if (candidateDate.getTime() < startDate.getTime()) {
+        continue;
+      }
+      const startTime = buildDateTimeFromClock(candidateDate, template.startClock);
+      const endTime = buildDateTimeFromClock(candidateDate, template.endClock);
+      if (!startTime || !endTime) {
+        continue;
+      }
+      return {
+        subject: template.subject ?? lastSchedule.subject ?? '',
+        startTime,
+        endTime
+      };
+    }
+    weekStart.setDate(weekStart.getDate() + 7);
+  }
+
+  return null;
 };
 
 const applyScheduleTimeDefaults = (schedule) => {
@@ -880,15 +973,27 @@ const sameClassSlotSummary = computed(() => {
 const selectedAdjustStudent = computed(() => {
   return students.value.find((student) => student.id === adjustStudentId.value) ?? null;
 });
+const adjustFirstSchedule = computed(() => {
+  return plannedSchedules.value[0] ?? null;
+});
 const adjustLastSchedule = computed(() => {
   return plannedSchedules.value[plannedSchedules.value.length - 1] ?? null;
 });
-const adjustLastMetaTitle = computed(() => {
+const adjustMetaSchedule = computed(() => {
+  return adjustMode.value === 'leave' ? adjustFirstSchedule.value : adjustLastSchedule.value;
+});
+const adjustMetaTitle = computed(() => {
+  if (adjustMode.value === 'leave') {
+    return '最近一节待上课';
+  }
   return adjustMode.value === 'temporary' ? '课表最后一节' : '当前最晚一节';
 });
-const adjustLastMetaHint = computed(() => {
+const adjustMetaHint = computed(() => {
   if (adjustMode.value === 'temporary') {
     return '临时加课时，系统会自动移除这一节。';
+  }
+  if (adjustMode.value === 'leave') {
+    return '请假顺延时，系统会先移除这一节。';
   }
   if (adjustMode.value === 'future') {
     return '批量改时间只会调整匹配到的后续待上课程。';
@@ -951,6 +1056,14 @@ const sameClassPreviewHint = computed(() => {
 const temporaryTargetLabel = computed(() => {
   return buildSlotLabel(temporaryForm.lessonDate, temporaryForm.startTime, temporaryForm.endTime);
 });
+const leaveTargetSchedule = computed(() => {
+  return buildNextRecurringSchedule(plannedSchedules.value);
+});
+const leaveTargetScheduleLabel = computed(() => {
+  return leaveTargetSchedule.value
+    ? formatScheduleOptionLabel(leaveTargetSchedule.value)
+    : '当前还无法推算顺延课程';
+});
 const rescheduleTargetLabel = computed(() => {
   return buildSlotLabel(rescheduleForm.lessonDate, rescheduleForm.startTime, rescheduleForm.endTime);
 });
@@ -974,6 +1087,27 @@ const temporaryPreviewHint = computed(() => {
     return '该学生当前没有待上课程，无法执行“补 1 节、减 1 节”的替换。';
   }
   return '系统会保持总课时不变，并自动校验是否与其他课程冲突。';
+});
+const leavePreview = computed(() => {
+  const studentLabel = selectedAdjustStudent.value
+    ? `${selectedAdjustStudent.value.name} · ${selectedAdjustStudent.value.grade}`
+    : '未选择学生';
+  const removedLabel = adjustFirstSchedule.value
+    ? formatScheduleOptionLabel(adjustFirstSchedule.value)
+    : '暂未找到待上课程';
+  return `${studentLabel} · 请假移除 ${removedLabel} · 末尾补入 ${leaveTargetScheduleLabel.value}`;
+});
+const leavePreviewHint = computed(() => {
+  if (!selectedAdjustStudent.value) {
+    return '先选学生，再确认请假顺延。';
+  }
+  if (!adjustFirstSchedule.value) {
+    return '该学生当前没有待上课程，无法执行请假顺延。';
+  }
+  if (!leaveTargetSchedule.value) {
+    return '当前还无法根据课表规律推算新的末尾课程。';
+  }
+  return '系统会自动保持总课时不变，并按现有课表规律顺延 1 节。';
 });
 const reschedulePreview = computed(() => {
   const studentLabel = selectedAdjustStudent.value
@@ -1019,6 +1153,9 @@ const adjustDialogTitle = computed(() => {
   if (adjustMode.value === 'temporary') {
     return '临时加课';
   }
+  if (adjustMode.value === 'leave') {
+    return '请假顺延';
+  }
   if (adjustMode.value === 'future') {
     return '后续课程改时间';
   }
@@ -1027,6 +1164,9 @@ const adjustDialogTitle = computed(() => {
 const adjustBannerTitle = computed(() => {
   if (adjustMode.value === 'temporary') {
     return '临时加课，不改总课时';
+  }
+  if (adjustMode.value === 'leave') {
+    return '请假 1 节，自动顺延到末尾';
   }
   if (adjustMode.value === 'future') {
     return '后续统一改时间，不动已销课';
@@ -1037,6 +1177,9 @@ const adjustBannerDescription = computed(() => {
   if (adjustMode.value === 'temporary') {
     return '补一节临时课时，系统会自动移除末尾课程，适合补课和临时插课。';
   }
+  if (adjustMode.value === 'leave') {
+    return '系统会移除最近一节待上课程，并按当前课表规律在末尾补回 1 节，适合学生请假顺延。';
+  }
   if (adjustMode.value === 'future') {
     return '从一节待上课开始，统一调整后续同一固定时段的课程，适合整体换上课时间。';
   }
@@ -1046,11 +1189,20 @@ const adjustMiddleStepLabel = computed(() => {
   if (adjustMode.value === 'temporary') {
     return '设时段';
   }
+  if (adjustMode.value === 'leave') {
+    return '看顺延';
+  }
   return '选课程';
+});
+const adjustFinalStepLabel = computed(() => {
+  return adjustMode.value === 'leave' ? '确认顺延' : '确认时间';
 });
 const adjustSubmitLabel = computed(() => {
   if (adjustMode.value === 'temporary') {
     return '确认临时加课';
+  }
+  if (adjustMode.value === 'leave') {
+    return '确认请假顺延';
   }
   if (adjustMode.value === 'future') {
     return '确认批量改时间';
@@ -1061,6 +1213,9 @@ const adjustPreview = computed(() => {
   if (adjustMode.value === 'temporary') {
     return temporaryPreview.value;
   }
+  if (adjustMode.value === 'leave') {
+    return leavePreview.value;
+  }
   if (adjustMode.value === 'future') {
     return futureReschedulePreview.value;
   }
@@ -1069,6 +1224,9 @@ const adjustPreview = computed(() => {
 const adjustPreviewHint = computed(() => {
   if (adjustMode.value === 'temporary') {
     return temporaryPreviewHint.value;
+  }
+  if (adjustMode.value === 'leave') {
+    return leavePreviewHint.value;
   }
   if (adjustMode.value === 'future') {
     return futureReschedulePreviewHint.value;
@@ -1231,6 +1389,34 @@ const submitTemporaryLesson = async () => {
   }
 };
 
+const submitLeaveAdjustment = async () => {
+  if (!adjustStudentId.value) {
+    ElMessage.error('请先选择学生');
+    return;
+  }
+  if (!adjustFirstSchedule.value) {
+    ElMessage.error('该学生当前没有待上课程，无法执行请假顺延');
+    return;
+  }
+  if (!leaveTargetSchedule.value) {
+    ElMessage.error('当前还无法推算顺延后的末尾课程');
+    return;
+  }
+
+  adjustSubmitting.value = true;
+  try {
+    const result = await api.requestScheduleLeave(adjustStudentId.value);
+    await loadStudents();
+    await loadPlannedSchedules(adjustStudentId.value);
+    adjustDialogVisible.value = false;
+    ElMessage.success(result?.message ?? '请假顺延已处理');
+  } catch (requestError) {
+    ElMessage.error(normalizeError(requestError, '请假顺延失败'));
+  } finally {
+    adjustSubmitting.value = false;
+  }
+};
+
 const submitReschedule = async () => {
   if (!adjustStudentId.value || !rescheduleForm.scheduleId) {
     ElMessage.error('请先选择需要改时间的课程');
@@ -1289,6 +1475,10 @@ const submitFutureReschedule = async () => {
 const submitAdjustAction = async () => {
   if (adjustMode.value === 'temporary') {
     await submitTemporaryLesson();
+    return;
+  }
+  if (adjustMode.value === 'leave') {
+    await submitLeaveAdjustment();
     return;
   }
   if (adjustMode.value === 'future') {
@@ -1590,6 +1780,11 @@ onMounted(async () => {
 .planner-mode--temporary {
   border-color: rgba(110, 231, 183, 0.78);
   background: linear-gradient(145deg, rgba(220, 252, 231, 0.84), rgba(255, 255, 255, 0.96));
+}
+
+.planner-mode--leave {
+  border-color: rgba(251, 146, 153, 0.76);
+  background: linear-gradient(145deg, rgba(255, 228, 230, 0.84), rgba(255, 255, 255, 0.96));
 }
 
 .planner-mode--reschedule {

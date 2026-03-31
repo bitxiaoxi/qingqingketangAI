@@ -261,6 +261,14 @@ public class StudentScheduleController {
                     String.format("%s 当前还没有可参考的待上课表，请先为该学生生成正式课表", sameClassStudent.getName()));
         }
 
+        return resolveRecurringTemplates(plannedSchedules);
+    }
+
+    private List<WeeklySlotTemplate> resolveRecurringTemplates(List<StudentSchedule> plannedSchedules) {
+        if (CollectionUtils.isEmpty(plannedSchedules)) {
+            return Collections.emptyList();
+        }
+
         Map<String, SlotTemplateCounter> templateCounterMap = new LinkedHashMap<>();
         for (StudentSchedule schedule : plannedSchedules) {
             if (schedule.getStartTime() == null || schedule.getEndTime() == null) {
@@ -301,6 +309,16 @@ public class StudentScheduleController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "未找到可沿用的同班上课时间");
         }
 
+        return generateSlotsFromTemplates(startDate, slotTemplates, totalLessons);
+    }
+
+    private List<GeneratedSlot> generateSlotsFromTemplates(LocalDate startDate,
+                                                           List<WeeklySlotTemplate> slotTemplates,
+                                                           int totalLessons) {
+        if (startDate == null || CollectionUtils.isEmpty(slotTemplates) || totalLessons <= 0) {
+            return Collections.emptyList();
+        }
+
         List<GeneratedSlot> generatedSlots = new ArrayList<>();
         LocalDate weekStart = startDate.minusDays(startDate.getDayOfWeek().getValue() - 1L);
         while (generatedSlots.size() < totalLessons) {
@@ -320,6 +338,21 @@ public class StudentScheduleController {
             weekStart = weekStart.plusWeeks(1);
         }
         return generatedSlots;
+    }
+
+    private GeneratedSlot generateNextRecurringSlot(StudentSchedule lastSchedule,
+                                                    List<WeeklySlotTemplate> slotTemplates) {
+        if (lastSchedule == null || lastSchedule.getStartTime() == null || lastSchedule.getEndTime() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前课表缺少可顺延的末尾课程");
+        }
+        List<GeneratedSlot> generatedSlots = generateSlotsFromTemplates(
+                lastSchedule.getStartTime().toLocalDate().plusDays(1),
+                slotTemplates,
+                1);
+        if (CollectionUtils.isEmpty(generatedSlots)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "未找到可顺延到课表末尾的课程时段");
+        }
+        return generatedSlots.get(0);
     }
 
     private void validateNoUnexpectedSameClassConflict(Long targetStudentId,
@@ -517,6 +550,56 @@ public class StudentScheduleController {
                 formatSlot(lastSchedule.getStartTime(), lastSchedule.getEndTime())));
         view.setAddedSchedule(toView(addedSchedule, student.getName(), student.getGrade(), null));
         view.setRemovedSchedule(toView(lastSchedule, student.getName(), student.getGrade(), null));
+        return view;
+    }
+
+    @PostMapping("/students/{studentId}/leave")
+    @Transactional
+    public TemporaryAdjustmentView delayLatestPlannedLesson(@PathVariable Long studentId) {
+        Student student = requireStudent(studentId);
+        List<StudentSchedule> plannedSchedules = studentScheduleMapper.findPlannedByStudentId(studentId);
+        if (CollectionUtils.isEmpty(plannedSchedules)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该学生当前没有待上课程，无法执行请假顺延");
+        }
+
+        StudentSchedule removedSchedule = plannedSchedules.get(0);
+        StudentSchedule lastSchedule = plannedSchedules.get(plannedSchedules.size() - 1);
+        List<WeeklySlotTemplate> slotTemplates = resolveRecurringTemplates(plannedSchedules);
+        if (CollectionUtils.isEmpty(slotTemplates)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前课表缺少可参考的固定时段，无法自动顺延");
+        }
+
+        GeneratedSlot generatedSlot = generateNextRecurringSlot(lastSchedule, slotTemplates);
+        validateNoUnexpectedConflict(
+                studentId,
+                generatedSlot.getStartTime(),
+                generatedSlot.getEndTime(),
+                null,
+                "该学生在 %s 已经有同一时段课程，请勿重复排课");
+
+        StudentSchedule addedSchedule = new StudentSchedule();
+        addedSchedule.setStudentId(studentId);
+        addedSchedule.setSubject(StringUtils.hasText(generatedSlot.getSubject())
+                ? generatedSlot.getSubject()
+                : (StringUtils.hasText(removedSchedule.getSubject()) ? removedSchedule.getSubject() : DEFAULT_SUBJECT));
+        addedSchedule.setStartTime(generatedSlot.getStartTime());
+        addedSchedule.setEndTime(generatedSlot.getEndTime());
+        addedSchedule.setStatus(STATUS_PLANNED);
+        addedSchedule.setCreatedAt(LocalDateTime.now());
+        studentScheduleService.save(addedSchedule);
+        studentScheduleService.removeById(removedSchedule.getId());
+        studentLessonBalanceService.refreshStudentBalance(studentId);
+
+        TemporaryAdjustmentView view = new TemporaryAdjustmentView();
+        view.setStudentId(studentId);
+        view.setStudentName(student.getName());
+        view.setMessage(String.format(
+                "已为 %s 请假顺延 1 节，移除最近待上课的 %s，并在课表末尾补入 %s。",
+                student.getName(),
+                formatSlot(removedSchedule.getStartTime(), removedSchedule.getEndTime()),
+                formatSlot(addedSchedule.getStartTime(), addedSchedule.getEndTime())));
+        view.setAddedSchedule(toView(addedSchedule, student.getName(), student.getGrade(), null));
+        view.setRemovedSchedule(toView(removedSchedule, student.getName(), student.getGrade(), null));
         return view;
     }
 

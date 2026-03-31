@@ -836,7 +836,7 @@ const schedulePosterUrl = computed(() => {
         <rect x="${actionX}" y="${actionY}" width="${actionMetrics.width}" height="${actionMetrics.height}" rx="${actionMetrics.height / 2}" fill="${palette.badge}" />
         <text x="${actionX + actionMetrics.width / 2}" y="${actionY + actionMetrics.height / 2 + actionMetrics.fontSize * 0.35}" text-anchor="middle" font-size="${actionMetrics.fontSize}" font-weight="700" fill="${palette.badgeText}">${escapeSvgText(actionLabel)}</text>
         <text x="${x + 14}" y="${timeY}" font-size="11" font-weight="600" fill="#64748b">${escapeSvgText(truncateTextByUnits(schedule.timeRange, timeMaxUnits))}</text>
-        ${gradeText ? `<text x="${x + 14}" y="${gradeY}" font-size="11" font-weight="700" fill="#334155">${escapeSvgText(gradeText)}</text>` : ''}
+        ${gradeText ? `<text x="${x + 14}" y="${gradeY}" font-size="12" font-weight="800" fill="#0f172a">${escapeSvgText(gradeText)}</text>` : ''}
         ${studentNameText ? `<text x="${x + 14}" y="${studentNamesStartY}" font-size="12" fill="#475569">${studentNameText}</text>` : ''}
       </g>
     `;

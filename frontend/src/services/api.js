@@ -81,6 +81,11 @@ export const api = {
       body: JSON.stringify(body)
     });
   },
+  requestScheduleLeave(studentId) {
+    return request(`/api/schedules/students/${studentId}/leave`, {
+      method: 'POST'
+    });
+  },
   rescheduleSchedule(scheduleId, body) {
     return request(`/api/schedules/${scheduleId}/reschedule`, {
       method: 'POST',
