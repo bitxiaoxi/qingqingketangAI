@@ -1,49 +1,100 @@
 <template>
   <section class="page-stack">
-    <PageHeader title="排课管理" />
+    <PageHeader
+      title="排课管理"
+      description="新增课表和已有课表调课都从这里进入。"
+    />
 
     <el-card shadow="never" class="feature-card feature-card--planner">
       <div v-if="loading" class="page-state">学生加载中…</div>
       <el-alert v-else-if="error" :title="error" type="error" show-icon :closable="false" />
       <div v-else class="planner-stack">
-        <div class="planner-toolbar">
-          <h3>选择操作</h3>
-          <span v-if="selectedCreateStudent" class="planner-student-chip">
-            {{ selectedCreateStudent.name }} · {{ selectedCreateStudent.grade }} · 可排 {{ getSchedulableLessons(selectedCreateStudent) }} 节
-          </span>
-        </div>
+        <section class="planner-section planner-section--create">
+          <div class="planner-section__head">
+            <div>
+              <span class="planner-section__eyebrow">新增课表</span>
+              <h3>新生排课</h3>
+            </div>
+            <small>适合首次生成正式课表</small>
+          </div>
 
-        <div class="planner-mode-grid">
-          <button type="button" class="planner-mode planner-mode--manual" @click="openCreateDialog()">
-            <span class="planner-mode__tag">手动排课</span>
-            <strong>新生排课</strong>
-            <small>按学生、上课日和时间生成</small>
-          </button>
+          <div class="planner-mode-grid planner-mode-grid--single">
+            <button type="button" class="planner-mode planner-mode--manual" @click="openCreateDialog()">
+              <div class="planner-mode__top">
+                <span class="planner-mode__tag">手动排课</span>
+                <span class="planner-mode__badge">首次建表</span>
+              </div>
+              <div class="planner-mode__body">
+                <strong>新生排课</strong>
+                <small>按学生、上课日和时间生成完整课表。</small>
+              </div>
+              <div v-if="selectedCreateStudent" class="planner-mode__meta">
+                {{ selectedCreateStudent.name }} · {{ selectedCreateStudent.grade }} · 可排 {{ getSchedulableLessons(selectedCreateStudent) }} 节
+              </div>
+              <p class="planner-mode__hint">从学生管理进入时会自动带入学生信息。</p>
+            </button>
+          </div>
+        </section>
 
-          <button type="button" class="planner-mode planner-mode--temporary" @click="openAdjustDialog('temporary')">
-            <span class="planner-mode__tag">临时加课</span>
-            <strong>补课</strong>
-            <small>选定一个新时段补课，并自动移除末尾课程</small>
-          </button>
+        <section class="planner-section planner-section--adjust">
+          <div class="planner-section__head">
+            <div>
+              <span class="planner-section__eyebrow">已有课表</span>
+              <h3>调课处理</h3>
+            </div>
+            <small>补课、请假和改时间都从这里进入</small>
+          </div>
 
-          <button type="button" class="planner-mode planner-mode--leave" @click="openAdjustDialog('leave')">
-            <span class="planner-mode__tag">请假顺延</span>
-            <strong>请假</strong>
-            <small>移除最近一节待上课，并自动在排课末尾补 1 节</small>
-          </button>
+          <div class="planner-mode-grid planner-mode-grid--adjust">
+            <button type="button" class="planner-mode planner-mode--temporary" @click="openAdjustDialog('temporary')">
+              <div class="planner-mode__top">
+                <span class="planner-mode__tag">临时加课</span>
+                <span class="planner-mode__badge">已有课表</span>
+              </div>
+              <div class="planner-mode__body">
+                <strong>补课</strong>
+                <small>插入一个新时段补课，并自动替换末尾课程。</small>
+              </div>
+              <p class="planner-mode__hint">保持总课时不变，适合节假日补课和临时插课。</p>
+            </button>
 
-          <button type="button" class="planner-mode planner-mode--reschedule" @click="openAdjustDialog('reschedule')">
-            <span class="planner-mode__tag">课程改时间</span>
-            <strong>临时更改一节课时间</strong>
-            <small>把一节待上课程改到新的日期和时段</small>
-          </button>
+            <button type="button" class="planner-mode planner-mode--leave" @click="openAdjustDialog('leave')">
+              <div class="planner-mode__top">
+                <span class="planner-mode__tag">请假顺延</span>
+                <span class="planner-mode__badge">已有课表</span>
+              </div>
+              <div class="planner-mode__body">
+                <strong>请假</strong>
+                <small>移除最近一节待上课，并自动顺延到排课末尾。</small>
+              </div>
+              <p class="planner-mode__hint">适合学生本次请假，系统会自动补回 1 节。</p>
+            </button>
 
-          <button type="button" class="planner-mode planner-mode--future" @click="openAdjustDialog('future')">
-            <span class="planner-mode__tag">后续改时间</span>
-            <strong>统一调整后续课程时间</strong>
-            <small>从一节待上课开始，统一调整后续同周期课程</small>
-          </button>
-        </div>
+            <button type="button" class="planner-mode planner-mode--reschedule" @click="openAdjustDialog('reschedule')">
+              <div class="planner-mode__top">
+                <span class="planner-mode__tag">课程改时间</span>
+                <span class="planner-mode__badge">单节处理</span>
+              </div>
+              <div class="planner-mode__body">
+                <strong>临时更改一节课时间</strong>
+                <small>把一节待上课程改到新的日期和时段。</small>
+              </div>
+              <p class="planner-mode__hint">只修改这一节课，不影响其他待上课程。</p>
+            </button>
+
+            <button type="button" class="planner-mode planner-mode--future" @click="openAdjustDialog('future')">
+              <div class="planner-mode__top">
+                <span class="planner-mode__tag">后续改时间</span>
+                <span class="planner-mode__badge">批量处理</span>
+              </div>
+              <div class="planner-mode__body">
+                <strong>统一调整后续课程时间</strong>
+                <small>从一节待上课开始，统一调整后续同周期课程。</small>
+              </div>
+              <p class="planner-mode__hint">适合整体更换固定上课时间，已销课课程不受影响。</p>
+            </button>
+          </div>
+        </section>
       </div>
     </el-card>
 
@@ -1460,37 +1511,22 @@ watch(
 
 onMounted(async () => {
   await loadStudents();
-  await resetAssistantConversation();
 });
 </script>
 
 <style scoped>
 .feature-card {
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
 }
 
 .feature-card--planner {
-  position: relative;
-  overflow: hidden;
-}
-
-.feature-card--planner::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 160px;
-  background:
-    radial-gradient(circle at top right, rgba(125, 211, 252, 0.18), transparent 26%),
-    linear-gradient(135deg, rgba(59, 130, 246, 0.08), transparent 52%);
-  pointer-events: none;
+  border-color: rgba(226, 232, 240, 0.9);
 }
 
 .feature-card :deep(.el-card__body) {
-  position: relative;
-  z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
 }
 
 .planner-stack {
@@ -1499,110 +1535,233 @@ onMounted(async () => {
   gap: 18px;
 }
 
-.planner-toolbar {
+.planner-section {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 16px;
+  padding: 22px;
+  border: 1px solid rgba(226, 232, 240, 0.88);
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.04);
 }
 
-.planner-toolbar h3 {
+.planner-section--create {
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.7), rgba(255, 255, 255, 0.98));
+  border-color: rgba(191, 219, 254, 0.82);
+}
+
+.planner-section--adjust {
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.98));
+}
+
+.planner-section__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.82);
+}
+
+.planner-section__eyebrow {
+  display: inline-flex;
+  margin-bottom: 7px;
+  color: var(--app-text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.planner-section__head h3 {
   font-size: 24px;
-  line-height: 1.12;
+  line-height: 1.1;
   letter-spacing: -0.03em;
 }
 
-.planner-student-chip {
-  display: inline-flex;
-  align-items: center;
-  max-width: 100%;
-  padding: 10px 14px;
-  border: 1px solid rgba(191, 219, 254, 0.9);
-  border-radius: 999px;
-  background: rgba(239, 246, 255, 0.92);
-  color: #1e3a8a;
-  font-size: 13px;
-  white-space: normal;
+.planner-section__head small {
+  color: var(--app-text-secondary);
+  line-height: 1.6;
+  max-width: 22ch;
 }
 
 .planner-mode-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.planner-mode-grid--single {
+  grid-template-columns: 1fr;
+}
+
+.planner-mode-grid--adjust {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .planner-mode {
-  padding: 24px;
+  --planner-accent: #3b82f6;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  min-height: 196px;
+  padding: 20px;
   border: 1px solid rgba(226, 232, 240, 0.92);
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.92);
+  border-top: 3px solid var(--planner-accent);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.98);
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.04);
-  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .planner-mode:hover {
   transform: translateY(-2px);
-  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.08);
+  border-color: rgba(203, 213, 225, 0.94);
+  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.08);
+}
+
+.planner-mode:focus-visible {
+  outline: none;
+  border-color: rgba(96, 165, 250, 0.92);
+  box-shadow:
+    0 0 0 4px rgba(191, 219, 254, 0.42),
+    0 16px 32px rgba(15, 23, 42, 0.08);
+}
+
+.planner-mode__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .planner-mode__tag {
   display: inline-flex;
-  margin-bottom: 14px;
-  padding: 6px 10px;
+  padding: 7px 10px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.66);
+  background: rgba(15, 23, 42, 0.04);
   color: var(--app-text-secondary);
-  font-size: 12px;
-  letter-spacing: 0.08em;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   line-height: 1;
+}
+
+.planner-mode__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--planner-accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.planner-mode__body {
+  max-width: 42ch;
 }
 
 .planner-mode strong {
   display: block;
   margin-bottom: 8px;
-  font-size: 22px;
+  color: #0f172a;
+  font-size: 21px;
   line-height: 1.2;
+  letter-spacing: -0.03em;
 }
 
 .planner-mode small {
   display: block;
   color: var(--app-text-secondary);
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.planner-mode__meta {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 8px 11px;
+  border-radius: 999px;
+  background: rgba(239, 246, 255, 0.94);
+  border: 1px solid rgba(191, 219, 254, 0.9);
+  color: #1d4ed8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.planner-mode__hint {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid rgba(226, 232, 240, 0.86);
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.planner-section--create .planner-mode {
+  min-height: 214px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.98));
+}
+
+.planner-section--adjust .planner-mode {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 250, 251, 0.98));
 }
 
 .planner-mode--manual {
-  border-color: rgba(147, 197, 253, 0.72);
-  background: linear-gradient(145deg, rgba(219, 234, 254, 0.78), rgba(255, 255, 255, 0.96));
+  --planner-accent: #2563eb;
 }
 
 .planner-mode--temporary {
-  border-color: rgba(110, 231, 183, 0.78);
-  background: linear-gradient(145deg, rgba(220, 252, 231, 0.84), rgba(255, 255, 255, 0.96));
+  --planner-accent: #059669;
 }
 
 .planner-mode--leave {
-  border-color: rgba(251, 146, 153, 0.76);
-  background: linear-gradient(145deg, rgba(255, 228, 230, 0.84), rgba(255, 255, 255, 0.96));
+  --planner-accent: #e11d48;
 }
 
 .planner-mode--reschedule {
-  border-color: rgba(196, 181, 253, 0.78);
-  background: linear-gradient(145deg, rgba(237, 233, 254, 0.84), rgba(255, 255, 255, 0.96));
+  --planner-accent: #7c3aed;
 }
 
 .planner-mode--future {
-  border-color: rgba(251, 191, 36, 0.78);
-  background: linear-gradient(145deg, rgba(254, 243, 199, 0.84), rgba(255, 255, 255, 0.96));
+  --planner-accent: #d97706;
 }
 
 .schedule-dialog :deep(.el-dialog) {
-  border-radius: 28px;
+  overflow: hidden;
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  border-radius: 26px;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.14);
+}
+
+.schedule-dialog :deep(.el-dialog__header) {
+  margin-right: 0;
+  padding: 22px 22px 0;
+}
+
+.schedule-dialog :deep(.el-dialog__title) {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
 }
 
 .schedule-dialog :deep(.el-dialog__body) {
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  padding: 20px 22px 22px;
+  background: #fafcff;
+}
+
+.schedule-dialog :deep(.el-dialog__footer) {
+  padding: 0 22px 22px;
 }
 
 .schedule-preview__eyebrow {
@@ -1621,20 +1780,21 @@ onMounted(async () => {
   gap: 16px;
   margin-bottom: 16px;
   padding: 18px 20px;
-  border: 1px solid rgba(191, 219, 254, 0.92);
-  border-radius: 22px;
-  background: linear-gradient(135deg, rgba(239, 246, 255, 0.98), rgba(255, 255, 255, 0.94));
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.98));
 }
 
 .dialog-banner strong {
   display: block;
   margin-bottom: 4px;
   font-size: 18px;
+  letter-spacing: -0.03em;
 }
 
 .dialog-banner--adjust {
-  border-color: rgba(167, 243, 208, 0.9);
-  background: linear-gradient(135deg, rgba(236, 253, 245, 0.98), rgba(255, 255, 255, 0.94));
+  border-color: rgba(209, 213, 219, 0.92);
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.98));
 }
 
 .dialog-banner p {
@@ -1654,9 +1814,9 @@ onMounted(async () => {
   align-items: center;
   padding: 8px 12px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid rgba(191, 219, 254, 0.88);
-  color: #1d4ed8;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  color: var(--app-text-secondary);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1664,19 +1824,20 @@ onMounted(async () => {
 .dialog-form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .dialog-block {
-  padding: 18px;
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.92);
+  padding: 20px;
+  border: 1px solid rgba(226, 232, 240, 0.86);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
 }
 
 .dialog-block--primary {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.62);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
 }
 
 .dialog-block__head {
@@ -1727,7 +1888,7 @@ onMounted(async () => {
 .create-mode-toggle__item {
   padding: 12px 14px;
   border: 1px solid rgba(226, 232, 240, 0.9);
-  border-radius: 16px;
+  border-radius: 18px;
   background: rgba(255, 255, 255, 0.92);
   color: var(--app-text-secondary);
   cursor: pointer;
@@ -1752,8 +1913,8 @@ onMounted(async () => {
   gap: 12px;
   margin-top: -4px;
   margin-bottom: 14px;
-  padding: 12px 14px;
-  border-radius: 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
   background: rgba(239, 246, 255, 0.82);
   border: 1px solid rgba(191, 219, 254, 0.88);
 }
@@ -1792,6 +1953,7 @@ onMounted(async () => {
   border-radius: 18px;
   border: 1px solid rgba(226, 232, 240, 0.88);
   background: rgba(248, 250, 252, 0.92);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
 }
 
 .adjustment-meta-card span {
@@ -1843,10 +2005,10 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px;
+  padding: 16px 18px;
   border: 1px solid rgba(191, 219, 254, 0.88);
-  border-radius: 18px;
-  background: linear-gradient(145deg, rgba(239, 246, 255, 0.92), rgba(255, 255, 255, 0.96));
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.92), rgba(255, 255, 255, 0.98));
 }
 
 .weekday-auto-state strong {
@@ -1870,7 +2032,7 @@ onMounted(async () => {
 }
 
 .weekday-chip {
-  padding: 12px 10px;
+  padding: 13px 10px;
   border: 1px solid rgba(226, 232, 240, 0.9);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.92);
@@ -1941,7 +2103,7 @@ onMounted(async () => {
   padding: 16px 18px;
   border-radius: 20px;
   border: 1px solid rgba(191, 219, 254, 0.88);
-  background: linear-gradient(145deg, rgba(239, 246, 255, 0.92), rgba(255, 255, 255, 0.96));
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.92), rgba(255, 255, 255, 0.98));
 }
 
 .adjustment-swap-card__block span {
@@ -1961,11 +2123,12 @@ onMounted(async () => {
 }
 
 .schedule-preview {
-  padding: 18px;
-  border: 1px solid rgba(191, 219, 254, 0.9);
-  border-radius: 20px;
-  background: linear-gradient(145deg, #0f172a, #1e3a8a);
+  padding: 20px 22px;
+  border: 1px solid rgba(30, 64, 175, 0.18);
+  border-radius: 24px;
+  background: linear-gradient(145deg, #0f172a, #1e3a8a 72%);
   color: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 16px 32px rgba(30, 64, 175, 0.16);
 }
 
 .schedule-preview strong {
@@ -1990,6 +2153,24 @@ onMounted(async () => {
   gap: 12px;
 }
 
+.dialog-footer :deep(.el-button) {
+  min-width: 112px;
+  height: 44px;
+  border-radius: 14px;
+  font-weight: 700;
+}
+
+.dialog-footer :deep(.el-button--default) {
+  border-color: rgba(226, 232, 240, 0.92);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.dialog-footer :deep(.el-button--primary) {
+  border: none;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.18);
+}
+
 .dialog-form :deep(.el-select__wrapper),
 .dialog-form :deep(.el-input__wrapper),
 .dialog-form :deep(.el-textarea__inner),
@@ -2004,25 +2185,32 @@ onMounted(async () => {
 .dialog-form :deep(.el-select__wrapper),
 .dialog-form :deep(.el-input__wrapper),
 .dialog-form :deep(.el-date-editor.el-input__wrapper) {
-  min-height: 46px;
+  min-height: 48px;
   background: rgba(248, 250, 252, 0.92);
-  box-shadow: none;
+  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.76);
 }
 
 .dialog-form :deep(.el-input__wrapper.is-focus),
 .dialog-form :deep(.el-select__wrapper.is-focused),
 .dialog-form :deep(.el-date-editor.el-input__wrapper.is-focus) {
   background: #ffffff;
-  box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.82) inset;
+  box-shadow:
+    0 0 0 4px rgba(191, 219, 254, 0.34),
+    0 0 0 1px rgba(96, 165, 250, 0.92) inset;
 }
 
 .page-state {
+  padding: 18px 20px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
   color: var(--app-text-secondary);
   font-size: 14px;
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.05);
 }
 
 @media (max-width: 1200px) {
-  .planner-toolbar,
+  .planner-section__head,
   .dialog-banner,
   .dialog-inline-summary,
   .dialog-block__subhead {
@@ -2037,11 +2225,20 @@ onMounted(async () => {
 }
 
 @media (max-width: 900px) {
+  .planner-section {
+    padding: 16px;
+  }
+
   .dialog-grid,
   .planner-mode-grid,
+  .planner-mode-grid--adjust,
   .weekday-chip-grid,
   .create-mode-toggle {
     grid-template-columns: 1fr;
+  }
+
+  .planner-mode {
+    min-height: 176px;
   }
 
   .page-header__actions {
