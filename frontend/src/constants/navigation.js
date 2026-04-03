@@ -32,9 +32,9 @@ export const navigationItems = [
     icon: EditPen,
     meta: {
       label: '排课管理',
-      caption: '手动与 AI',
+      caption: '排课与调课',
       title: '排课管理',
-      description: '集中处理手动排课与 AI 排课，为学生快速生成正式课课表。'
+      description: '集中处理固定排课、补课、请假顺延和改时间，为学生维护正式课课表。'
     }
   },
   {

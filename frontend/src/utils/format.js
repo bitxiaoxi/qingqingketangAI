@@ -126,26 +126,3 @@ export const buildWeekdaySummary = (weekdays, weeklySessions, weekdayOptions) =>
   }
   return `已选 ${labels.length}/${weeklySessions} · ${labels.join('、')}`;
 };
-
-export const formatParsedIntentSummary = (parsedIntent) => {
-  if (!parsedIntent) {
-    return '';
-  }
-  const parts = [];
-  if (parsedIntent.studentName) {
-    parts.push(`学生 ${parsedIntent.studentName}`);
-  }
-  if (Array.isArray(parsedIntent.weekdays) && parsedIntent.weekdays.length) {
-    parts.push(`上课日 ${parsedIntent.weekdays.join('、')}`);
-  }
-  if (parsedIntent.startTime && parsedIntent.endTime) {
-    parts.push(`时间 ${parsedIntent.startTime}-${parsedIntent.endTime}`);
-  }
-  if (parsedIntent.startDate) {
-    parts.push(`从 ${parsedIntent.startDate} 开始`);
-  }
-  if (Array.isArray(parsedIntent.missingFields) && parsedIntent.missingFields.length) {
-    parts.push(`待补 ${parsedIntent.missingFields.join('、')}`);
-  }
-  return parts.join(' · ');
-};

@@ -7,7 +7,7 @@
       <el-alert v-else-if="error" :title="error" type="error" show-icon :closable="false" />
       <div v-else class="planner-stack">
         <div class="planner-toolbar">
-          <h3>选择排课方式</h3>
+          <h3>选择操作</h3>
           <span v-if="selectedCreateStudent" class="planner-student-chip">
             {{ selectedCreateStudent.name }} · {{ selectedCreateStudent.grade }} · 可排 {{ getSchedulableLessons(selectedCreateStudent) }} 节
           </span>
@@ -16,14 +16,8 @@
         <div class="planner-mode-grid">
           <button type="button" class="planner-mode planner-mode--manual" @click="openCreateDialog()">
             <span class="planner-mode__tag">手动排课</span>
-            <strong>固定周期排课</strong>
+            <strong>新生排课</strong>
             <small>按学生、上课日和时间生成</small>
-          </button>
-
-          <button type="button" class="planner-mode planner-mode--ai" @click="openAssistantDrawer">
-            <span class="planner-mode__tag">AI 排课</span>
-            <strong>自然语言排课</strong>
-            <small>一句话生成排课草案</small>
           </button>
 
           <button type="button" class="planner-mode planner-mode--temporary" @click="openAdjustDialog('temporary')">
@@ -40,13 +34,13 @@
 
           <button type="button" class="planner-mode planner-mode--reschedule" @click="openAdjustDialog('reschedule')">
             <span class="planner-mode__tag">课程改时间</span>
-            <strong>平移既有课程</strong>
+            <strong>临时更改一节课时间</strong>
             <small>把一节待上课程改到新的日期和时段</small>
           </button>
 
           <button type="button" class="planner-mode planner-mode--future" @click="openAdjustDialog('future')">
             <span class="planner-mode__tag">后续改时间</span>
-            <strong>批量改后续课程</strong>
+            <strong>统一调整后续课程时间</strong>
             <small>从一节待上课开始，统一调整后续同周期课程</small>
           </button>
         </div>
@@ -552,82 +546,21 @@
       </template>
     </el-dialog>
 
-    <el-drawer
-      v-model="assistantDrawerVisible"
-      size="560px"
-      title="AI 排课"
-      destroy-on-close
-      class="assistant-drawer"
-    >
-      <div class="assistant-stack">
-        <div class="assistant-examples">
-          <button
-            v-for="example in scheduleAssistantExamples"
-            :key="example"
-            type="button"
-            class="assistant-example"
-            @click="assistantInput = example"
-          >
-            {{ example }}
-          </button>
-        </div>
-
-        <div ref="assistantThreadRef" class="assistant-thread">
-          <article
-            v-for="message in assistantMessages"
-            :key="message.id"
-            class="assistant-message"
-            :data-role="message.role"
-          >
-            <div class="assistant-message__meta">
-              <span>{{ message.role === 'assistant' ? '排课助手' : '你' }}</span>
-              <small v-if="message.meta">{{ message.meta }}</small>
-            </div>
-            <div class="assistant-message__bubble">
-              <p>{{ message.content }}</p>
-              <ul v-if="message.warnings?.length">
-                <li v-for="warning in message.warnings" :key="`${message.id}-${warning}`">{{ warning }}</li>
-              </ul>
-            </div>
-          </article>
-        </div>
-
-        <el-input
-          v-model="assistantInput"
-          type="textarea"
-          :rows="4"
-          :placeholder="assistantPlaceholder"
-        />
-
-        <div class="assistant-actions">
-          <span class="field-hint">
-            {{ assistantPendingFields.length ? `当前待补：${assistantPendingFields.join('、')}` : '支持多轮补充，系统会记住上下文。' }}
-          </span>
-          <div class="assistant-actions__buttons">
-            <el-button @click="resetAssistantConversation">重置</el-button>
-            <el-button type="primary" :loading="assistantSubmitting" @click="submitAssistant">
-              发送并排课
-            </el-button>
-          </div>
-        </div>
-      </div>
-    </el-drawer>
   </section>
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import PageHeader from '../components/common/PageHeader.vue';
-import { frequencyOptions, scheduleAssistantExamples, weekdayOptions } from '../constants/options';
+import { frequencyOptions, weekdayOptions } from '../constants/options';
 import { api } from '../services/api';
 import {
   buildWeekdaySummary,
   formatClock,
   formatDateParam,
   formatLongDate,
-  formatParsedIntentSummary,
   formatTimeRange,
   normalizeError
 } from '../utils/format';
@@ -649,7 +582,6 @@ const adjustSubmitting = ref(false);
 const plannedSchedules = ref([]);
 const sameClassReferenceSchedules = ref([]);
 const loadingSameClassSchedules = ref(false);
-const assistantDrawerVisible = ref(false);
 const createForm = reactive({
   studentId: getRouteStudentId(),
   sameClassStudentId: null,
@@ -677,48 +609,10 @@ const futureRescheduleForm = reactive({
   endTime: '20:30'
 });
 
-const assistantThreadRef = ref(null);
-const assistantMessages = ref([]);
-const assistantInput = ref('');
-const assistantPendingFields = ref([]);
-const assistantSubmitting = ref(false);
 const allWeekdayValues = weekdayOptions.map((option) => option.value);
-let assistantMessageId = 0;
 
 const getSchedulableLessons = (student) => {
   return Math.max(0, Number(student?.schedulableLessons ?? student?.remainingLessons ?? 0));
-};
-
-const createAssistantMessage = (role, content, options = {}) => {
-  assistantMessageId += 1;
-  return {
-    id: assistantMessageId,
-    role,
-    content,
-    meta: options.meta ?? '',
-    warnings: options.warnings ?? []
-  };
-};
-
-const resetAssistantConversation = async () => {
-  assistantMessages.value = [
-    createAssistantMessage(
-      'assistant',
-      '告诉我学生姓名、每周上课日、时间段和开始日期。你可以分多轮补充，我会记住已经识别到的信息。',
-      { meta: 'AI 对话排课' }
-    )
-  ];
-  assistantInput.value = '';
-  assistantPendingFields.value = [];
-  await scrollAssistantThread();
-};
-
-const scrollAssistantThread = async () => {
-  await nextTick();
-  const target = assistantThreadRef.value;
-  if (target) {
-    target.scrollTop = target.scrollHeight;
-  }
 };
 
 const loadStudents = async () => {
@@ -1234,22 +1128,6 @@ const adjustPreviewHint = computed(() => {
   return reschedulePreviewHint.value;
 });
 
-const assistantPlaceholder = computed(() => {
-  if (assistantPendingFields.value.includes('学生姓名')) {
-    return '直接回复学生姓名，例如：李晓明';
-  }
-  if (assistantPendingFields.value.includes('每周上课日')) {
-    return '直接回复每周上课日，例如：周二、周四';
-  }
-  if (assistantPendingFields.value.includes('开始日期')) {
-    return '直接回复开始日期，例如：从 2026-03-16 开始';
-  }
-  if (assistantPendingFields.value.includes('上课时间')) {
-    return '直接回复上课时间，例如：19:00-20:30';
-  }
-  return '例如：李晓明每周二、周四 19:00-20:30，从下周一开始上课';
-});
-
 const resetCreateForm = (studentId = null) => {
   createClassMode.value = 'solo';
   createForm.studentId = studentId;
@@ -1488,79 +1366,6 @@ const submitAdjustAction = async () => {
   await submitReschedule();
 };
 
-const openAssistantDrawer = async () => {
-  assistantDrawerVisible.value = true;
-  if (!assistantMessages.value.length) {
-    await resetAssistantConversation();
-    return;
-  }
-  await scrollAssistantThread();
-};
-
-const submitAssistant = async () => {
-  if (!assistantInput.value.trim()) {
-    return;
-  }
-
-  const userMessage = createAssistantMessage('user', assistantInput.value.trim());
-  assistantMessages.value = [...assistantMessages.value, userMessage];
-  assistantInput.value = '';
-  assistantSubmitting.value = true;
-  await scrollAssistantThread();
-
-  try {
-    const data = await api.assistantArrange(
-      assistantMessages.value.map((message) => ({
-        role: message.role,
-        content: message.content
-      }))
-    );
-
-    assistantPendingFields.value = Array.isArray(data?.parsedIntent?.missingFields)
-      ? data.parsedIntent.missingFields
-      : [];
-
-    const metaParts = [];
-    if (data?.analysisMode === 'AI') {
-      metaParts.push('AI 解析');
-    } else if (data?.analysisMode) {
-      metaParts.push('规则解析');
-    }
-    const parsedSummary = formatParsedIntentSummary(data?.parsedIntent);
-    if (parsedSummary) {
-      metaParts.push(parsedSummary);
-    }
-    if (data?.scheduled) {
-      metaParts.push(`已排 ${data.scheduledCount ?? 0} 节`);
-      assistantPendingFields.value = [];
-    }
-
-    assistantMessages.value = [
-      ...assistantMessages.value,
-      createAssistantMessage('assistant', data?.reply ?? '已收到排课请求。', {
-        meta: metaParts.join(' · '),
-        warnings: data?.warnings ?? []
-      })
-    ];
-    await scrollAssistantThread();
-
-    if (data?.scheduled) {
-      await loadStudents();
-      ElMessage.success(`已生成 ${data.scheduledCount ?? 0} 节课`);
-    }
-  } catch (requestError) {
-    const message = normalizeError(requestError, '智能排课失败');
-    assistantMessages.value = [
-      ...assistantMessages.value,
-      createAssistantMessage('assistant', message, { meta: '系统提示' })
-    ];
-    await scrollAssistantThread();
-    ElMessage.error(message);
-  } finally {
-    assistantSubmitting.value = false;
-  }
-};
-
 watch(
   () => createForm.weeklySessions,
   (value) => {
@@ -1772,11 +1577,6 @@ onMounted(async () => {
   background: linear-gradient(145deg, rgba(219, 234, 254, 0.78), rgba(255, 255, 255, 0.96));
 }
 
-.planner-mode--ai {
-  border-color: rgba(253, 186, 116, 0.72);
-  background: linear-gradient(145deg, rgba(255, 237, 213, 0.78), rgba(255, 255, 255, 0.96));
-}
-
 .planner-mode--temporary {
   border-color: rgba(110, 231, 183, 0.78);
   background: linear-gradient(145deg, rgba(220, 252, 231, 0.84), rgba(255, 255, 255, 0.96));
@@ -1801,8 +1601,7 @@ onMounted(async () => {
   border-radius: 28px;
 }
 
-.schedule-dialog :deep(.el-dialog__body),
-.assistant-drawer :deep(.el-drawer__body) {
+.schedule-dialog :deep(.el-dialog__body) {
   background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
 }
 
@@ -2191,97 +1990,6 @@ onMounted(async () => {
   gap: 12px;
 }
 
-.field-hint {
-  display: inline-flex;
-  color: var(--app-text-secondary);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.assistant-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.assistant-examples {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.assistant-example {
-  padding: 10px 12px;
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--app-text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: border-color 180ms ease, transform 180ms ease, background 180ms ease;
-}
-
-.assistant-example:hover {
-  transform: translateY(-1px);
-  border-color: rgba(191, 219, 254, 0.88);
-  background: rgba(239, 246, 255, 0.9);
-}
-
-.assistant-thread {
-  max-height: 360px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 6px;
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.92);
-}
-
-.assistant-message {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.assistant-message__meta {
-  display: flex;
-  gap: 8px;
-  color: var(--app-text-tertiary);
-  font-size: 12px;
-}
-
-.assistant-message__bubble {
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(248, 250, 252, 0.98);
-  color: var(--app-text-primary);
-  line-height: 1.7;
-}
-
-.assistant-message[data-role='user'] .assistant-message__bubble {
-  background: rgba(219, 234, 254, 0.92);
-}
-
-.assistant-message__bubble ul {
-  margin-top: 8px;
-  padding-left: 18px;
-  color: var(--app-text-secondary);
-}
-
-.assistant-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.assistant-actions__buttons {
-  display: flex;
-  gap: 12px;
-}
-
 .dialog-form :deep(.el-select__wrapper),
 .dialog-form :deep(.el-input__wrapper),
 .dialog-form :deep(.el-textarea__inner),
@@ -2289,8 +1997,7 @@ onMounted(async () => {
 .dialog-form :deep(.el-date-editor.el-input__wrapper.is-focus),
 .dialog-form :deep(.el-input__wrapper.is-focus),
 .dialog-form :deep(.el-select__wrapper.is-focused),
-.dialog-form :deep(.el-textarea__inner:focus),
-.assistant-stack :deep(.el-textarea__inner) {
+.dialog-form :deep(.el-textarea__inner:focus) {
   border-radius: 16px;
 }
 
@@ -2309,18 +2016,12 @@ onMounted(async () => {
   box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.82) inset;
 }
 
-.assistant-stack :deep(.el-textarea__inner) {
-  min-height: 112px;
-  padding: 14px 16px;
-}
-
 .page-state {
   color: var(--app-text-secondary);
   font-size: 14px;
 }
 
 @media (max-width: 1200px) {
-  .assistant-actions,
   .planner-toolbar,
   .dialog-banner,
   .dialog-inline-summary,
@@ -2341,12 +2042,6 @@ onMounted(async () => {
   .weekday-chip-grid,
   .create-mode-toggle {
     grid-template-columns: 1fr;
-  }
-
-  .assistant-actions {
-    width: 100%;
-    flex-direction: column;
-    align-items: flex-start;
   }
 
   .page-header__actions {

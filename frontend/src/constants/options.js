@@ -39,9 +39,3 @@ export const trialStatusOptions = [
   { value: 'ENROLLED', label: '已报名', type: 'primary' },
   { value: 'LOST', label: '未报名', type: 'info' }
 ];
-
-export const scheduleAssistantExamples = [
-  '李晓明每周二、周四 19:00-20:30，从下周一开始上课',
-  '给王同学安排每周六 09:30-11:00，从2026-03-21开始上正式课',
-  '赵同学从4月8日开始，每周一三五 18:30到20:00上课'
-];

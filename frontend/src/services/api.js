@@ -108,12 +108,6 @@ export const api = {
       method: 'POST'
     });
   },
-  assistantArrange(messages) {
-    return request('/api/schedules/assistant/arrange', {
-      method: 'POST',
-      body: JSON.stringify({ messages })
-    });
-  },
   listTrials() {
     return request('/api/trials');
   },
