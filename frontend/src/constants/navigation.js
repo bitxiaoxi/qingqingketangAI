@@ -1,4 +1,4 @@
-import { House, Calendar, EditPen, User, Opportunity, Wallet } from '@element-plus/icons-vue';
+import { House, Calendar, EditPen, User, Opportunity, Wallet, Connection } from '@element-plus/icons-vue';
 
 export const navigationItems = [
   {
@@ -71,6 +71,18 @@ export const navigationItems = [
       caption: '收费与续费',
       title: '财务管理',
       description: '汇总收入、登记收费，并跟踪续费与流水。'
+    }
+  },
+  {
+    path: '/finance/referrals',
+    name: 'referrals',
+    component: () => import('../views/ReferralView.vue'),
+    icon: Connection,
+    meta: {
+      label: '转介绍管理',
+      caption: '财务 · 赠课',
+      title: '转介绍管理',
+      description: '绑定学生转介绍关系，并自动为介绍人赠送课时。'
     }
   }
 ];

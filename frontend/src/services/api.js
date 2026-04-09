@@ -54,6 +54,15 @@ export const api = {
     const suffix = month ? `?month=${encodeURIComponent(month)}` : '';
     return request(`/api/students/write-off-overview${suffix}`);
   },
+  listReferrals() {
+    return request('/api/referrals');
+  },
+  createReferral(body) {
+    return request('/api/referrals', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+  },
   listPaymentRecords() {
     return request('/api/students/payment-records');
   },

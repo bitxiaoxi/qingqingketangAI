@@ -21,6 +21,30 @@ CREATE TABLE IF NOT EXISTS student_payments (
         ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='学生学费流水';
 
+-- 转介绍关系表：记录介绍人与被介绍人，并关联赠课流水
+CREATE TABLE IF NOT EXISTS student_referrals (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '自增主键',
+    referrer_student_id BIGINT NOT NULL COMMENT '介绍人学生ID',
+    referred_student_id BIGINT NOT NULL COMMENT '被介绍人学生ID',
+    reward_lesson_count INT NOT NULL DEFAULT 1 COMMENT '奖励课时数',
+    reward_payment_id BIGINT NULL COMMENT '奖励课时对应的缴费流水ID',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_at DATETIME NOT NULL COMMENT '创建时间',
+    rewarded_at DATETIME NOT NULL COMMENT '发放奖励时间',
+    CONSTRAINT fk_student_referrals_referrer
+        FOREIGN KEY (referrer_student_id) REFERENCES students(id)
+        ON DELETE CASCADE,
+    CONSTRAINT fk_student_referrals_referred
+        FOREIGN KEY (referred_student_id) REFERENCES students(id)
+        ON DELETE CASCADE,
+    CONSTRAINT fk_student_referrals_reward_payment
+        FOREIGN KEY (reward_payment_id) REFERENCES student_payments(id)
+        ON DELETE SET NULL,
+    UNIQUE KEY uk_student_referrals_referred (referred_student_id),
+    UNIQUE KEY uk_student_referrals_reward_payment (reward_payment_id),
+    INDEX idx_student_referrals_referrer (referrer_student_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='学生转介绍关系';
+
 -- 学生课表：记录排课结果
 CREATE TABLE IF NOT EXISTS student_schedules (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '自增主键',
