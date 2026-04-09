@@ -2,19 +2,17 @@ package com.qingqingketang.student.web;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.qingqingketang.student.entity.Student;
-import com.qingqingketang.student.entity.StudentLessonBalance;
-import com.qingqingketang.student.entity.StudentLessonConsumption;
 import com.qingqingketang.student.entity.StudentPayment;
 import com.qingqingketang.student.entity.StudentSchedule;
-import com.qingqingketang.student.mapper.StudentLessonBalanceMapper;
-import com.qingqingketang.student.mapper.StudentLessonConsumptionMapper;
+import com.qingqingketang.student.mapper.StudentMapper;
 import com.qingqingketang.student.mapper.StudentPaymentMapper;
 import com.qingqingketang.student.mapper.StudentScheduleMapper;
-import com.qingqingketang.student.service.StudentLessonBalanceService;
-import com.qingqingketang.student.service.StudentLessonConsumptionService;
 import com.qingqingketang.student.service.ScheduleAssistantService;
 import com.qingqingketang.student.service.StudentScheduleService;
 import com.qingqingketang.student.service.StudentService;
+import com.qingqingketang.student.web.dto.LessonBalanceSummary;
+import com.qingqingketang.student.web.dto.PaymentSummary;
+import com.qingqingketang.student.web.dto.ScheduleCountSummary;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,32 +60,23 @@ public class StudentScheduleController {
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
     private final StudentService studentService;
+    private final StudentMapper studentMapper;
     private final StudentScheduleService studentScheduleService;
     private final StudentScheduleMapper studentScheduleMapper;
-    private final StudentLessonBalanceMapper studentLessonBalanceMapper;
-    private final StudentLessonBalanceService studentLessonBalanceService;
     private final StudentPaymentMapper studentPaymentMapper;
-    private final StudentLessonConsumptionMapper studentLessonConsumptionMapper;
-    private final StudentLessonConsumptionService studentLessonConsumptionService;
     private final ScheduleAssistantService scheduleAssistantService;
 
     public StudentScheduleController(StudentService studentService,
+                                     StudentMapper studentMapper,
                                      StudentScheduleService studentScheduleService,
                                      StudentScheduleMapper studentScheduleMapper,
-                                     StudentLessonBalanceMapper studentLessonBalanceMapper,
-                                     StudentLessonBalanceService studentLessonBalanceService,
                                      StudentPaymentMapper studentPaymentMapper,
-                                     StudentLessonConsumptionMapper studentLessonConsumptionMapper,
-                                     StudentLessonConsumptionService studentLessonConsumptionService,
                                      ScheduleAssistantService scheduleAssistantService) {
         this.studentService = studentService;
+        this.studentMapper = studentMapper;
         this.studentScheduleService = studentScheduleService;
         this.studentScheduleMapper = studentScheduleMapper;
-        this.studentLessonBalanceMapper = studentLessonBalanceMapper;
-        this.studentLessonBalanceService = studentLessonBalanceService;
         this.studentPaymentMapper = studentPaymentMapper;
-        this.studentLessonConsumptionMapper = studentLessonConsumptionMapper;
-        this.studentLessonConsumptionService = studentLessonConsumptionService;
         this.scheduleAssistantService = scheduleAssistantService;
     }
 
@@ -99,24 +88,13 @@ public class StudentScheduleController {
     @ResponseStatus(HttpStatus.CREATED)
     public List<ScheduleView> autoGenerate(@PathVariable Long studentId,
                                            @Valid @RequestBody ScheduleGenerateRequest request) {
-        Student student = studentService.getById(studentId);
-        if (student == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "学生不存在");
-        }
-
-        studentLessonBalanceService.refreshStudentBalance(studentId);
-        // 使用余额行锁，确保并发排课时不会重复透支课时。
-        StudentLessonBalance balance = studentLessonBalanceMapper.findByStudentIdForUpdate(studentId);
-        int remainingLessons = balance != null && balance.getRemainingLessons() != null
-                ? balance.getRemainingLessons()
-                : 0;
-        if (remainingLessons <= 0) {
+        Student student = lockStudent(studentId);
+        LessonBalanceSummary balance = loadLessonBalance(studentId);
+        if (balance.getRemainingLessons() <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该学生暂无剩余课时，请先录入学费和课时信息");
         }
 
-        int schedulableLessons = balance != null && balance.getSchedulableLessons() != null
-                ? balance.getSchedulableLessons()
-                : 0;
+        int schedulableLessons = balance.getSchedulableLessons();
         if (schedulableLessons <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该学生剩余课时已全部排入课表，请先调整现有排课或新增课时");
         }
@@ -173,9 +151,8 @@ public class StudentScheduleController {
         }
 
         studentScheduleService.saveBatch(schedules);
-        studentLessonBalanceService.refreshStudentBalance(studentId);
         return schedules.stream()
-                .map(schedule -> toView(schedule, student.getName(), student.getGrade(), null))
+                .map(schedule -> toView(schedule, student.getName(), student.getGrade()))
                 .collect(Collectors.toList());
     }
 
@@ -384,23 +361,17 @@ public class StudentScheduleController {
         Set<Long> studentIds = schedules.stream()
                 .map(StudentSchedule::getStudentId)
                 .collect(Collectors.toSet());
-        List<Long> scheduleIds = schedules.stream()
-                .map(StudentSchedule::getId)
-                .collect(Collectors.toList());
         Map<Long, Student> studentMap = studentService.list(Wrappers.<Student>lambdaQuery()
                         .in(Student::getId, studentIds))
                 .stream()
                 .collect(Collectors.toMap(Student::getId, s -> s));
-        Map<Long, StudentLessonConsumption> consumptionMap = studentLessonConsumptionMapper.findByScheduleIds(scheduleIds)
-                .stream()
-                .collect(Collectors.toMap(StudentLessonConsumption::getScheduleId, c -> c));
 
         return schedules.stream()
                 .map(schedule -> {
                     Student s = studentMap.get(schedule.getStudentId());
                     String studentName = s != null ? s.getName() : "未知学生";
                     String studentGrade = s != null ? s.getGrade() : "";
-                    return toView(schedule, studentName, studentGrade, consumptionMap.get(schedule.getId()));
+                    return toView(schedule, studentName, studentGrade);
                 })
                 .collect(Collectors.toList());
     }
@@ -413,7 +384,7 @@ public class StudentScheduleController {
         }
 
         return studentScheduleMapper.findPlannedByStudentId(studentId).stream()
-                .map(schedule -> toView(schedule, student.getName(), student.getGrade(), null))
+                .map(schedule -> toView(schedule, student.getName(), student.getGrade()))
                 .collect(Collectors.toList());
     }
 
@@ -423,25 +394,13 @@ public class StudentScheduleController {
     @PostMapping("/{scheduleId}/complete")
     @Transactional
     public ScheduleView completeSchedule(@PathVariable Long scheduleId) {
-        StudentSchedule schedule = studentScheduleService.getById(scheduleId);
-        if (schedule == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "课程不存在");
-        }
+        LockedScheduleContext context = lockScheduleContext(scheduleId);
+        StudentSchedule schedule = context.getSchedule();
+        Student student = context.getStudent();
 
-        Student student = studentService.getById(schedule.getStudentId());
-        if (student == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "关联学生不存在");
-        }
-
-        StudentLessonConsumption consumption = studentLessonConsumptionMapper.findByScheduleId(scheduleId);
         if (!STATUS_COMPLETED.equalsIgnoreCase(schedule.getStatus())) {
-            studentLessonBalanceService.refreshStudentBalance(schedule.getStudentId());
-            StudentLessonBalance balance = studentLessonBalanceMapper.findByStudentIdForUpdate(schedule.getStudentId());
-            if (balance == null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该学生尚未录入课时信息");
-            }
-            int remaining = balance.getRemainingLessons() == null ? 0 : balance.getRemainingLessons();
-            if (remaining <= 0) {
+            LessonBalanceSummary balance = loadLessonBalance(schedule.getStudentId());
+            if (balance.getRemainingLessons() <= 0) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该学生剩余课时不足，无法销课");
             }
             StudentPayment payment = studentPaymentMapper.findNextConsumablePayment(schedule.getStudentId());
@@ -450,22 +409,14 @@ public class StudentScheduleController {
             }
 
             LocalDateTime now = LocalDateTime.now();
-            if (consumption == null) {
-                consumption = new StudentLessonConsumption();
-                consumption.setScheduleId(scheduleId);
-                consumption.setStudentId(schedule.getStudentId());
-                consumption.setPaymentId(payment.getId());
-                consumption.setLessonPrice(payment.getAvgFeePerLesson() == null ? BigDecimal.ZERO : payment.getAvgFeePerLesson());
-                consumption.setConsumedAt(now);
-                studentLessonConsumptionService.save(consumption);
-            }
-
+            schedule.setPaymentId(payment.getId());
+            schedule.setLessonPrice(payment.getAvgFeePerLesson() == null ? BigDecimal.ZERO : payment.getAvgFeePerLesson());
+            schedule.setConsumedAt(now);
             schedule.setStatus(STATUS_COMPLETED);
             studentScheduleService.updateById(schedule);
-            studentLessonBalanceService.refreshStudentBalance(schedule.getStudentId());
         }
 
-        return toView(schedule, student.getName(), student.getGrade(), consumption);
+        return toView(schedule, student.getName(), student.getGrade());
     }
 
     /**
@@ -474,42 +425,26 @@ public class StudentScheduleController {
     @PostMapping("/{scheduleId}/undo-complete")
     @Transactional
     public ScheduleView undoCompleteSchedule(@PathVariable Long scheduleId) {
-        StudentSchedule schedule = studentScheduleService.getById(scheduleId);
-        if (schedule == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "课程不存在");
-        }
+        LockedScheduleContext context = lockScheduleContext(scheduleId);
+        StudentSchedule schedule = context.getSchedule();
+        Student student = context.getStudent();
 
-        Student student = studentService.getById(schedule.getStudentId());
-        if (student == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "关联学生不存在");
-        }
-
-        StudentLessonConsumption consumption = studentLessonConsumptionMapper.findByScheduleId(scheduleId);
         if (STATUS_COMPLETED.equalsIgnoreCase(schedule.getStatus())) {
-            studentLessonBalanceService.refreshStudentBalance(schedule.getStudentId());
-            StudentLessonBalance balance = studentLessonBalanceMapper.findByStudentIdForUpdate(schedule.getStudentId());
-            if (balance == null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该学生尚未录入课时信息");
-            }
-
-            if (consumption != null) {
-                studentLessonConsumptionService.removeById(consumption.getId());
-                consumption = null;
-            }
-
             schedule.setStatus(STATUS_PLANNED);
+            schedule.setPaymentId(null);
+            schedule.setLessonPrice(null);
+            schedule.setConsumedAt(null);
             studentScheduleService.updateById(schedule);
-            studentLessonBalanceService.refreshStudentBalance(schedule.getStudentId());
         }
 
-        return toView(schedule, student.getName(), student.getGrade(), consumption);
+        return toView(schedule, student.getName(), student.getGrade());
     }
 
     @PostMapping("/students/{studentId}/temporary-lesson")
     @Transactional
     public TemporaryAdjustmentView createTemporaryLesson(@PathVariable Long studentId,
                                                          @Valid @RequestBody ScheduleSlotRequest request) {
-        Student student = requireStudent(studentId);
+        Student student = lockStudent(studentId);
         validateSlotRequest(request);
 
         StudentSchedule lastSchedule = studentScheduleMapper.findLastPlannedByStudentId(studentId);
@@ -538,7 +473,6 @@ public class StudentScheduleController {
         addedSchedule.setCreatedAt(LocalDateTime.now());
         studentScheduleService.save(addedSchedule);
         studentScheduleService.removeById(lastSchedule.getId());
-        studentLessonBalanceService.refreshStudentBalance(studentId);
 
         TemporaryAdjustmentView view = new TemporaryAdjustmentView();
         view.setStudentId(studentId);
@@ -548,15 +482,15 @@ public class StudentScheduleController {
                 student.getName(),
                 formatSlot(targetStart, targetEnd),
                 formatSlot(lastSchedule.getStartTime(), lastSchedule.getEndTime())));
-        view.setAddedSchedule(toView(addedSchedule, student.getName(), student.getGrade(), null));
-        view.setRemovedSchedule(toView(lastSchedule, student.getName(), student.getGrade(), null));
+        view.setAddedSchedule(toView(addedSchedule, student.getName(), student.getGrade()));
+        view.setRemovedSchedule(toView(lastSchedule, student.getName(), student.getGrade()));
         return view;
     }
 
     @PostMapping("/students/{studentId}/leave")
     @Transactional
     public TemporaryAdjustmentView delayLatestPlannedLesson(@PathVariable Long studentId) {
-        Student student = requireStudent(studentId);
+        Student student = lockStudent(studentId);
         List<StudentSchedule> plannedSchedules = studentScheduleMapper.findPlannedByStudentId(studentId);
         if (CollectionUtils.isEmpty(plannedSchedules)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该学生当前没有待上课程，无法执行请假顺延");
@@ -588,7 +522,6 @@ public class StudentScheduleController {
         addedSchedule.setCreatedAt(LocalDateTime.now());
         studentScheduleService.save(addedSchedule);
         studentScheduleService.removeById(removedSchedule.getId());
-        studentLessonBalanceService.refreshStudentBalance(studentId);
 
         TemporaryAdjustmentView view = new TemporaryAdjustmentView();
         view.setStudentId(studentId);
@@ -598,8 +531,8 @@ public class StudentScheduleController {
                 student.getName(),
                 formatSlot(removedSchedule.getStartTime(), removedSchedule.getEndTime()),
                 formatSlot(addedSchedule.getStartTime(), addedSchedule.getEndTime())));
-        view.setAddedSchedule(toView(addedSchedule, student.getName(), student.getGrade(), null));
-        view.setRemovedSchedule(toView(removedSchedule, student.getName(), student.getGrade(), null));
+        view.setAddedSchedule(toView(addedSchedule, student.getName(), student.getGrade()));
+        view.setRemovedSchedule(toView(removedSchedule, student.getName(), student.getGrade()));
         return view;
     }
 
@@ -609,15 +542,13 @@ public class StudentScheduleController {
                                            @Valid @RequestBody ScheduleSlotRequest request) {
         validateSlotRequest(request);
 
-        StudentSchedule schedule = studentScheduleService.getById(scheduleId);
-        if (schedule == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "课程不存在");
-        }
+        LockedScheduleContext context = lockScheduleContext(scheduleId);
+        StudentSchedule schedule = context.getSchedule();
         if (!STATUS_PLANNED.equalsIgnoreCase(schedule.getStatus())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "只有待上课程可以改时间，如需调整已销课程请先撤销销课");
         }
 
-        Student student = requireStudent(schedule.getStudentId());
+        Student student = context.getStudent();
         LocalDateTime targetStart = LocalDateTime.of(request.getLessonDate(), request.getStartTime());
         LocalDateTime targetEnd = LocalDateTime.of(request.getLessonDate(), request.getEndTime());
         if (sameSlot(schedule, targetStart, targetEnd)) {
@@ -634,7 +565,7 @@ public class StudentScheduleController {
         schedule.setStartTime(targetStart);
         schedule.setEndTime(targetEnd);
         studentScheduleService.updateById(schedule);
-        return toView(schedule, student.getName(), student.getGrade(), null);
+        return toView(schedule, student.getName(), student.getGrade());
     }
 
     @PostMapping("/{scheduleId}/reschedule-following")
@@ -643,15 +574,13 @@ public class StudentScheduleController {
                                                              @Valid @RequestBody ScheduleSlotRequest request) {
         validateSlotRequest(request);
 
-        StudentSchedule referenceSchedule = studentScheduleService.getById(scheduleId);
-        if (referenceSchedule == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "课程不存在");
-        }
+        LockedScheduleContext context = lockScheduleContext(scheduleId);
+        StudentSchedule referenceSchedule = context.getSchedule();
         if (!STATUS_PLANNED.equalsIgnoreCase(referenceSchedule.getStatus())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "只有待上课程可以批量改时间，已销课程不受影响");
         }
 
-        Student student = requireStudent(referenceSchedule.getStudentId());
+        Student student = context.getStudent();
         LocalDateTime targetStart = LocalDateTime.of(request.getLessonDate(), request.getStartTime());
         LocalDateTime targetEnd = LocalDateTime.of(request.getLessonDate(), request.getEndTime());
         if (sameSlot(referenceSchedule, targetStart, targetEnd)) {
@@ -689,7 +618,7 @@ public class StudentScheduleController {
                 shiftedSchedules.size(),
                 formatSlot(targetStart, targetEnd)));
         view.setUpdatedSchedules(shiftedSchedules.stream()
-                .map(shiftedSchedule -> toView(shiftedSchedule.getSchedule(), student.getName(), student.getGrade(), null))
+                .map(shiftedSchedule -> toView(shiftedSchedule.getSchedule(), student.getName(), student.getGrade()))
                 .collect(Collectors.toList()));
         return view;
     }
@@ -782,6 +711,35 @@ public class StudentScheduleController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "学生不存在");
         }
         return student;
+    }
+
+    private Student lockStudent(Long studentId) {
+        Student student = studentMapper.findByIdForUpdate(studentId);
+        if (student == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "学生不存在");
+        }
+        return student;
+    }
+
+    private LockedScheduleContext lockScheduleContext(Long scheduleId) {
+        StudentSchedule schedule = studentScheduleService.getById(scheduleId);
+        if (schedule == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "课程不存在");
+        }
+        Student student = lockStudent(schedule.getStudentId());
+        StudentSchedule lockedSchedule = studentScheduleService.getById(scheduleId);
+        if (lockedSchedule == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "课程不存在");
+        }
+        return new LockedScheduleContext(student, lockedSchedule);
+    }
+
+    private LessonBalanceSummary loadLessonBalance(Long studentId) {
+        List<PaymentSummary> paymentSummaries = studentPaymentMapper.sumByStudentIds(Collections.singletonList(studentId));
+        PaymentSummary paymentSummary = paymentSummaries.isEmpty() ? null : paymentSummaries.get(0);
+        List<ScheduleCountSummary> scheduleCountSummaries = studentScheduleMapper.sumByStudentIds(Collections.singletonList(studentId));
+        ScheduleCountSummary scheduleCountSummary = scheduleCountSummaries.isEmpty() ? null : scheduleCountSummaries.get(0);
+        return LessonBalanceSummary.from(paymentSummary, scheduleCountSummary);
     }
 
     private void validateSlotRequest(ScheduleSlotRequest request) {
@@ -910,8 +868,7 @@ public class StudentScheduleController {
      */
     private ScheduleView toView(StudentSchedule schedule,
                                 String studentName,
-                                String studentGrade,
-                                StudentLessonConsumption consumption) {
+                                String studentGrade) {
         ScheduleView view = new ScheduleView();
         view.setId(schedule.getId());
         view.setStudentId(schedule.getStudentId());
@@ -921,7 +878,7 @@ public class StudentScheduleController {
         view.setStartTime(schedule.getStartTime());
         view.setEndTime(schedule.getEndTime());
         view.setStatus(schedule.getStatus());
-        view.setLessonPrice(consumption != null ? consumption.getLessonPrice() : null);
+        view.setLessonPrice(schedule.getLessonPrice());
         return view;
     }
 
@@ -1003,6 +960,24 @@ public class StudentScheduleController {
         }
         if (!parsedIntentView.getMissingFields().contains(field)) {
             parsedIntentView.getMissingFields().add(field);
+        }
+    }
+
+    private static class LockedScheduleContext {
+        private final Student student;
+        private final StudentSchedule schedule;
+
+        private LockedScheduleContext(Student student, StudentSchedule schedule) {
+            this.student = student;
+            this.schedule = schedule;
+        }
+
+        private Student getStudent() {
+            return student;
+        }
+
+        private StudentSchedule getSchedule() {
+            return schedule;
         }
     }
 

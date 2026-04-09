@@ -28,6 +28,8 @@ public class LegacySchemaRepairRunner implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         repairLegacyColumns();
+        migrateLessonConsumptionSnapshots();
+        dropLegacyLessonBalanceTable();
     }
 
     private void repairLegacyColumns() {
@@ -45,23 +47,68 @@ public class LegacySchemaRepairRunner implements ApplicationRunner {
                     "note",
                     "ALTER TABLE trial_lessons ADD COLUMN note VARCHAR(255) NULL COMMENT '备注'");
             ensureColumn(connection,
-                    "student_lesson_balances",
-                    "purchased_lessons",
-                    "ALTER TABLE student_lesson_balances ADD COLUMN purchased_lessons INT NOT NULL DEFAULT 0 COMMENT '累计购买课时数'");
+                    "student_schedules",
+                    "payment_id",
+                    "ALTER TABLE student_schedules ADD COLUMN payment_id BIGINT NULL COMMENT '对应缴费批次ID'");
             ensureColumn(connection,
-                    "student_lesson_balances",
-                    "scheduled_lessons",
-                    "ALTER TABLE student_lesson_balances ADD COLUMN scheduled_lessons INT NOT NULL DEFAULT 0 COMMENT '已排未销课时数'");
+                    "student_schedules",
+                    "lesson_price",
+                    "ALTER TABLE student_schedules ADD COLUMN lesson_price DECIMAL(10,2) NULL COMMENT '本节课单价快照'");
             ensureColumn(connection,
-                    "student_lesson_balances",
-                    "completed_lessons",
-                    "ALTER TABLE student_lesson_balances ADD COLUMN completed_lessons INT NOT NULL DEFAULT 0 COMMENT '已销课时数'");
-            ensureColumn(connection,
-                    "student_lesson_balances",
-                    "schedulable_lessons",
-                    "ALTER TABLE student_lesson_balances ADD COLUMN schedulable_lessons INT NOT NULL DEFAULT 0 COMMENT '当前可继续排课时数'");
+                    "student_schedules",
+                    "consumed_at",
+                    "ALTER TABLE student_schedules ADD COLUMN consumed_at DATETIME NULL COMMENT '销课时间'");
         } catch (SQLException exception) {
             throw new IllegalStateException("修复历史数据库字段失败", exception);
+        }
+    }
+
+    private void migrateLessonConsumptionSnapshots() {
+        try (Connection connection = dataSource.getConnection()) {
+            if (!tableExists(connection, "student_lesson_consumptions")) {
+                return;
+            }
+
+            try (Statement statement = connection.createStatement()) {
+                statement.executeUpdate(
+                        "UPDATE student_schedules s " +
+                                "JOIN student_lesson_consumptions c ON c.schedule_id = s.id " +
+                                "SET s.payment_id = COALESCE(s.payment_id, c.payment_id), " +
+                                "    s.lesson_price = COALESCE(s.lesson_price, c.lesson_price), " +
+                                "    s.consumed_at = COALESCE(s.consumed_at, c.consumed_at) " +
+                                "WHERE s.payment_id IS NULL OR s.lesson_price IS NULL OR s.consumed_at IS NULL");
+                long remaining = queryForLong(statement,
+                        "SELECT COUNT(*) FROM student_schedules s " +
+                                "JOIN student_lesson_consumptions c ON c.schedule_id = s.id " +
+                                "WHERE s.payment_id IS NULL OR s.lesson_price IS NULL OR s.consumed_at IS NULL");
+                if (remaining == 0) {
+                    try {
+                        statement.execute("DROP TABLE student_lesson_consumptions");
+                        log.info("Migrated lesson consumption snapshots into student_schedules and dropped legacy table");
+                    } catch (SQLException exception) {
+                        log.warn("Migrated lesson consumption snapshots into student_schedules but failed to drop legacy table", exception);
+                    }
+                } else {
+                    log.warn("Skipped dropping legacy student_lesson_consumptions table because {} rows were not migrated", remaining);
+                }
+            }
+        } catch (SQLException exception) {
+            throw new IllegalStateException("迁移历史销课快照失败", exception);
+        }
+    }
+
+    private void dropLegacyLessonBalanceTable() {
+        try (Connection connection = dataSource.getConnection()) {
+            if (!tableExists(connection, "student_lesson_balances")) {
+                return;
+            }
+
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("DROP TABLE student_lesson_balances");
+                log.info("Dropped legacy student_lesson_balances table");
+            }
+        } catch (SQLException exception) {
+            throw new IllegalStateException("删除历史课时快照表失败", exception);
         }
     }
 
@@ -79,6 +126,22 @@ public class LegacySchemaRepairRunner implements ApplicationRunner {
         String catalog = connection.getCatalog();
         try (ResultSet resultSet = connection.getMetaData().getColumns(catalog, null, tableName, columnName)) {
             return resultSet.next();
+        }
+    }
+
+    private boolean tableExists(Connection connection, String tableName) throws SQLException {
+        String catalog = connection.getCatalog();
+        try (ResultSet resultSet = connection.getMetaData().getTables(catalog, null, tableName, null)) {
+            return resultSet.next();
+        }
+    }
+
+    private long queryForLong(Statement statement, String sql) throws SQLException {
+        try (ResultSet resultSet = statement.executeQuery(sql)) {
+            if (!resultSet.next()) {
+                return 0L;
+            }
+            return resultSet.getLong(1);
         }
     }
 }

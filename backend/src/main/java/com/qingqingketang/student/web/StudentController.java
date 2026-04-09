@@ -2,17 +2,17 @@ package com.qingqingketang.student.web;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.qingqingketang.student.entity.Student;
-import com.qingqingketang.student.entity.StudentLessonBalance;
-import com.qingqingketang.student.entity.StudentLessonConsumption;
 import com.qingqingketang.student.entity.StudentPayment;
 import com.qingqingketang.student.entity.StudentSchedule;
-import com.qingqingketang.student.mapper.StudentLessonConsumptionMapper;
+import com.qingqingketang.student.mapper.StudentMapper;
 import com.qingqingketang.student.mapper.StudentPaymentMapper;
-import com.qingqingketang.student.service.StudentLessonBalanceService;
+import com.qingqingketang.student.mapper.StudentScheduleMapper;
 import com.qingqingketang.student.service.StudentPaymentService;
 import com.qingqingketang.student.service.StudentScheduleService;
 import com.qingqingketang.student.service.StudentService;
+import com.qingqingketang.student.web.dto.LessonBalanceSummary;
 import com.qingqingketang.student.web.dto.PaymentSummary;
+import com.qingqingketang.student.web.dto.ScheduleCountSummary;
 import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -54,23 +54,23 @@ public class StudentController {
     private static final String STATUS_COMPLETED = "COMPLETED";
 
     private final StudentService studentService;
+    private final StudentMapper studentMapper;
     private final StudentPaymentService studentPaymentService;
     private final StudentPaymentMapper studentPaymentMapper;
-    private final StudentLessonBalanceService studentLessonBalanceService;
-    private final StudentLessonConsumptionMapper studentLessonConsumptionMapper;
+    private final StudentScheduleMapper studentScheduleMapper;
     private final StudentScheduleService studentScheduleService;
 
     public StudentController(StudentService studentService,
+                             StudentMapper studentMapper,
                              StudentPaymentService studentPaymentService,
                              StudentPaymentMapper studentPaymentMapper,
-                             StudentLessonBalanceService studentLessonBalanceService,
-                             StudentLessonConsumptionMapper studentLessonConsumptionMapper,
+                             StudentScheduleMapper studentScheduleMapper,
                              StudentScheduleService studentScheduleService) {
         this.studentService = studentService;
+        this.studentMapper = studentMapper;
         this.studentPaymentService = studentPaymentService;
         this.studentPaymentMapper = studentPaymentMapper;
-        this.studentLessonBalanceService = studentLessonBalanceService;
-        this.studentLessonConsumptionMapper = studentLessonConsumptionMapper;
+        this.studentScheduleMapper = studentScheduleMapper;
         this.studentScheduleService = studentScheduleService;
     }
 
@@ -97,11 +97,7 @@ public class StudentController {
         for (PaymentSummary summary : summaries) {
             summaryMap.put(summary.getStudentId(), summary);
         }
-        Map<Long, StudentLessonBalance> balanceMap = studentLessonBalanceService.list(
-                        Wrappers.<StudentLessonBalance>lambdaQuery()
-                                .in(StudentLessonBalance::getStudentId, ids))
-                .stream()
-                .collect(Collectors.toMap(StudentLessonBalance::getStudentId, balance -> balance));
+        Map<Long, LessonBalanceSummary> balanceMap = buildLessonBalanceMap(ids, summaryMap);
 
         return students.stream()
                 .map(student -> toView(
@@ -153,7 +149,7 @@ public class StudentController {
     public TuitionOverview getTuitionOverview() {
         TuitionOverview overview = new TuitionOverview();
         BigDecimal totalReceived = studentPaymentMapper.totalTuitionPaid();
-        BigDecimal totalConsumed = studentLessonConsumptionMapper.totalConsumedAmount();
+        BigDecimal totalConsumed = studentScheduleMapper.totalConsumedAmount();
         overview.setTotalReceived(totalReceived);
         overview.setTotalConsumed(totalConsumed);
         overview.setTotalPending(totalReceived.subtract(totalConsumed));
@@ -209,25 +205,18 @@ public class StudentController {
                         payment -> payment
                 ));
 
-        List<StudentLessonConsumption> consumptions = studentLessonConsumptionMapper.selectList(
-                Wrappers.<StudentLessonConsumption>lambdaQuery()
-                        .in(StudentLessonConsumption::getStudentId, studentIds)
+        List<StudentSchedule> completedSchedules = studentScheduleService.list(
+                Wrappers.<StudentSchedule>lambdaQuery()
+                        .in(StudentSchedule::getStudentId, studentIds)
+                        .eq(StudentSchedule::getStatus, STATUS_COMPLETED)
         );
         Map<Long, Integer> consumedCountByPaymentId = new HashMap<>();
-        for (StudentLessonConsumption consumption : consumptions) {
-            if (consumption.getPaymentId() == null) {
+        for (StudentSchedule completedSchedule : completedSchedules) {
+            if (completedSchedule.getPaymentId() == null) {
                 continue;
             }
-            consumedCountByPaymentId.merge(consumption.getPaymentId(), 1, Integer::sum);
+            consumedCountByPaymentId.merge(completedSchedule.getPaymentId(), 1, Integer::sum);
         }
-
-        Map<Long, StudentLessonConsumption> consumptionByScheduleId = consumptions.stream()
-                .filter(consumption -> consumption.getScheduleId() != null)
-                .collect(Collectors.toMap(
-                        StudentLessonConsumption::getScheduleId,
-                        consumption -> consumption,
-                        (left, right) -> left
-                ));
 
         Map<Long, BigDecimal> currentBatchPriceByStudentId = new HashMap<>();
         for (Long studentId : studentIds) {
@@ -260,10 +249,8 @@ public class StudentController {
                 continue;
             }
 
-            StudentLessonConsumption consumption = consumptionByScheduleId.get(schedule.getId());
             BigDecimal lessonPrice = resolveWriteOffLessonPrice(
                     schedule,
-                    consumption,
                     paymentById,
                     currentBatchPriceByStudentId
             );
@@ -295,16 +282,13 @@ public class StudentController {
     }
 
     private BigDecimal resolveWriteOffLessonPrice(StudentSchedule schedule,
-                                                  StudentLessonConsumption consumption,
                                                   Map<Long, StudentPayment> paymentById,
                                                   Map<Long, BigDecimal> currentBatchPriceByStudentId) {
-        if (consumption != null) {
-            if (consumption.getLessonPrice() != null) {
-                return consumption.getLessonPrice();
-            }
-            if (consumption.getPaymentId() != null) {
-                return resolvePaymentUnitPrice(paymentById.get(consumption.getPaymentId()));
-            }
+        if (schedule.getLessonPrice() != null) {
+            return schedule.getLessonPrice();
+        }
+        if (schedule.getPaymentId() != null) {
+            return resolvePaymentUnitPrice(paymentById.get(schedule.getPaymentId()));
         }
         return currentBatchPriceByStudentId.getOrDefault(schedule.getStudentId(), BigDecimal.ZERO);
     }
@@ -325,16 +309,13 @@ public class StudentController {
     }
 
     /**
-     * 续费接口：对已有学生新增一笔缴费并更新课时余额。
+     * 续费接口：对已有学生新增一笔缴费，并返回实时课时汇总。
      */
     @PostMapping("/{studentId}/payments")
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     public StudentView createPayment(@PathVariable Long studentId, @Valid @RequestBody PaymentRequest request) {
-        Student student = studentService.getById(studentId);
-        if (student == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "学生不存在");
-        }
+        Student student = lockStudent(studentId);
 
         BigDecimal tuition = request.getTuitionPaid();
         Integer lessons = request.getLessonCount();
@@ -351,7 +332,6 @@ public class StudentController {
         payment.setRemark(request.getRemark());
         payment.setPaidAt(LocalDateTime.now());
         studentPaymentService.save(payment);
-        studentLessonBalanceService.refreshStudentBalance(studentId);
 
         List<PaymentSummary> summaries = studentPaymentMapper.sumByStudentIds(Collections.singletonList(studentId));
         PaymentSummary summary = summaries.isEmpty() ? null : summaries.get(0);
@@ -359,7 +339,7 @@ public class StudentController {
     }
 
     /**
-     * 录入学生：创建学生基础信息，必要时写入首笔缴费与课时余额。
+     * 录入学生：创建学生基础信息，必要时写入首笔缴费。
      */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -376,6 +356,7 @@ public class StudentController {
         Integer lessons = request.getLessonCount() == null ? 0 : request.getLessonCount();
 
         if (tuition.compareTo(BigDecimal.ZERO) > 0 || lessons > 0) {
+            lockStudent(student.getId());
             // 同步写入首笔缴费，方便统计学费及课时
             StudentPayment payment = new StudentPayment();
             payment.setStudentId(student.getId());
@@ -388,16 +369,9 @@ public class StudentController {
             payment.setPaidAt(LocalDateTime.now());
             studentPaymentService.save(payment);
         }
-        studentLessonBalanceService.refreshStudentBalance(student.getId());
 
-        PaymentSummary summary = new PaymentSummary();
-        summary.setStudentId(student.getId());
-        summary.setTotalTuitionPaid(tuition);
-        summary.setTotalLessonCount(lessons);
-        BigDecimal avgForSummary = lessons > 0
-                ? tuition.divide(BigDecimal.valueOf(lessons), 2, RoundingMode.HALF_UP)
-                : BigDecimal.ZERO;
-        summary.setAvgFeePerLesson(avgForSummary);
+        List<PaymentSummary> summaries = studentPaymentMapper.sumByStudentIds(Collections.singletonList(student.getId()));
+        PaymentSummary summary = summaries.isEmpty() ? null : summaries.get(0);
         return buildSingleStudentView(student, summary);
     }
 
@@ -675,42 +649,28 @@ public class StudentController {
     /**
      * 把实体与缴费汇总转换成视图对象，统一输出到前端。
      */
-    private StudentView toView(Student student, PaymentSummary summary, StudentLessonBalance balance) {
+    private StudentView toView(Student student, PaymentSummary summary, LessonBalanceSummary balance) {
         StudentView view = new StudentView();
         view.setId(student.getId());
         view.setName(student.getName());
         view.setGender(student.getGender());
         view.setGrade(student.getGrade());
         view.setCreatedAt(student.getCreatedAt());
-        BigDecimal tuition = BigDecimal.ZERO;
-        int purchasedLessons = balance != null && balance.getPurchasedLessons() != null
-                ? balance.getPurchasedLessons()
-                : 0;
-        if (summary != null) {
-            tuition = summary.getTotalTuitionPaid() == null ? BigDecimal.ZERO : summary.getTotalTuitionPaid();
-            if (purchasedLessons <= 0) {
-                purchasedLessons = summary.getTotalLessonCount() == null ? 0 : summary.getTotalLessonCount();
-            }
-        }
-        int scheduledLessons = balance != null && balance.getScheduledLessons() != null
-                ? balance.getScheduledLessons()
-                : 0;
-        int completedLessons = balance != null && balance.getCompletedLessons() != null
-                ? balance.getCompletedLessons()
-                : 0;
-        int remainingLessons = balance != null && balance.getRemainingLessons() != null
-                ? balance.getRemainingLessons()
-                : Math.max(purchasedLessons - completedLessons, 0);
-        int schedulableLessons = balance != null && balance.getSchedulableLessons() != null
-                ? balance.getSchedulableLessons()
-                : Math.max(remainingLessons - scheduledLessons, 0);
+        BigDecimal tuition = summary != null && summary.getTotalTuitionPaid() != null
+                ? summary.getTotalTuitionPaid()
+                : BigDecimal.ZERO;
+        int purchasedLessons = balance.getPurchasedLessons();
+        int scheduledLessons = balance.getScheduledLessons();
+        int completedLessons = balance.getCompletedLessons();
+        int remainingLessons = balance.getRemainingLessons();
+        int schedulableLessons = balance.getSchedulableLessons();
         view.setTuitionPaid(tuition);
-        view.setLessonCount(Math.max(purchasedLessons, 0));
-        view.setScheduledLessons(Math.max(scheduledLessons, 0));
-        view.setCompletedLessons(Math.max(completedLessons, 0));
-        view.setRemainingLessons(Math.max(remainingLessons, 0));
-        view.setSchedulableLessons(Math.max(schedulableLessons, 0));
-        view.setCourseCount(Math.max(scheduledLessons + completedLessons, 0));
+        view.setLessonCount(purchasedLessons);
+        view.setScheduledLessons(scheduledLessons);
+        view.setCompletedLessons(completedLessons);
+        view.setRemainingLessons(remainingLessons);
+        view.setSchedulableLessons(schedulableLessons);
+        view.setCourseCount(scheduledLessons + completedLessons);
         if (purchasedLessons > 0) {
             BigDecimal summaryAvg = summary != null && summary.getAvgFeePerLesson() != null
                     ? summary.getAvgFeePerLesson()
@@ -723,9 +683,40 @@ public class StudentController {
     }
 
     private StudentView buildSingleStudentView(Student student, PaymentSummary summary) {
-        StudentLessonBalance balance = studentLessonBalanceService.getOne(
-                Wrappers.<StudentLessonBalance>lambdaQuery().eq(StudentLessonBalance::getStudentId, student.getId()));
+        LessonBalanceSummary balance = loadLessonBalance(student.getId(), summary);
         return toView(student, summary, balance);
+    }
+
+    private Map<Long, LessonBalanceSummary> buildLessonBalanceMap(List<Long> studentIds, Map<Long, PaymentSummary> paymentSummaryMap) {
+        Map<Long, ScheduleCountSummary> scheduleCountMap = new HashMap<>();
+        if (!studentIds.isEmpty()) {
+            List<ScheduleCountSummary> scheduleCountSummaries = studentScheduleMapper.sumByStudentIds(studentIds);
+            for (ScheduleCountSummary scheduleCountSummary : scheduleCountSummaries) {
+                scheduleCountMap.put(scheduleCountSummary.getStudentId(), scheduleCountSummary);
+            }
+        }
+
+        Map<Long, LessonBalanceSummary> balanceMap = new HashMap<>();
+        for (Long studentId : studentIds) {
+            balanceMap.put(studentId, LessonBalanceSummary.from(
+                    paymentSummaryMap.get(studentId),
+                    scheduleCountMap.get(studentId)));
+        }
+        return balanceMap;
+    }
+
+    private LessonBalanceSummary loadLessonBalance(Long studentId, PaymentSummary paymentSummary) {
+        List<ScheduleCountSummary> scheduleCountSummaries = studentScheduleMapper.sumByStudentIds(Collections.singletonList(studentId));
+        ScheduleCountSummary scheduleCountSummary = scheduleCountSummaries.isEmpty() ? null : scheduleCountSummaries.get(0);
+        return LessonBalanceSummary.from(paymentSummary, scheduleCountSummary);
+    }
+
+    private Student lockStudent(Long studentId) {
+        Student student = studentMapper.findByIdForUpdate(studentId);
+        if (student == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "学生不存在");
+        }
+        return student;
     }
 
     public static class PaymentRecordView {

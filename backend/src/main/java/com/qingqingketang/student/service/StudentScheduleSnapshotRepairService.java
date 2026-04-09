@@ -1,6 +1,6 @@
 package com.qingqingketang.student.service;
 
-public interface StudentLessonConsumptionRepairService {
+public interface StudentScheduleSnapshotRepairService {
 
     void backfillCompletedSchedules();
 }

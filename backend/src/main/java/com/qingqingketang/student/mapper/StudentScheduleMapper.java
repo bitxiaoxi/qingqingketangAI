@@ -2,6 +2,7 @@ package com.qingqingketang.student.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.qingqingketang.student.entity.StudentSchedule;
+import com.qingqingketang.student.web.dto.ScheduleCountSummary;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -42,11 +43,33 @@ public interface StudentScheduleMapper extends BaseMapper<StudentSchedule> {
     StudentSchedule findLastPlannedByStudentId(@Param("studentId") Long studentId);
 
     @Select({
+            "<script>",
+            "SELECT student_id AS studentId,",
+            "       COALESCE(SUM(CASE WHEN status = 'PLANNED' THEN 1 ELSE 0 END), 0) AS scheduledLessons,",
+            "       COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END), 0) AS completedLessons",
+            "FROM student_schedules",
+            "WHERE student_id IN",
+            "<foreach collection='ids' item='id' open='(' separator=',' close=')'>",
+            "#{id}",
+            "</foreach>",
+            "GROUP BY student_id",
+            "</script>"
+    })
+    List<ScheduleCountSummary> sumByStudentIds(@Param("ids") List<Long> ids);
+
+    @Select({
             "SELECT s.*",
             "FROM student_schedules s",
-            "LEFT JOIN student_lesson_consumptions c ON c.schedule_id = s.id",
-            "WHERE s.status = 'COMPLETED' AND c.id IS NULL",
+            "WHERE s.status = 'COMPLETED'",
+            "  AND (s.payment_id IS NULL OR s.lesson_price IS NULL OR s.consumed_at IS NULL)",
             "ORDER BY s.student_id ASC, s.start_time ASC, s.id ASC"
     })
     List<StudentSchedule> findCompletedWithoutConsumption();
+
+    @Select({
+            "SELECT COALESCE(SUM(lesson_price), 0)",
+            "FROM student_schedules",
+            "WHERE status = 'COMPLETED' AND lesson_price IS NOT NULL"
+    })
+    java.math.BigDecimal totalConsumedAmount();
 }
