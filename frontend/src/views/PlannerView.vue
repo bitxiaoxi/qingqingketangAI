@@ -1,76 +1,94 @@
 <template>
-  <section class="page-stack">
-    <PageHeader title="排课管理" />
-
-    <el-card shadow="never" class="feature-card feature-card--planner">
-      <div v-if="loading" class="page-state">学生加载中…</div>
-      <el-alert v-else-if="error" :title="error" type="error" show-icon :closable="false" />
+  <section class="page-stack planner-page">
+    <div class="planner-shell">
+      <div v-if="loading" class="page-state planner-state">学生加载中…</div>
+      <el-alert v-else-if="error" :title="error" type="error" show-icon :closable="false" class="planner-alert" />
       <div v-else class="planner-stack">
         <section class="planner-section">
-          <div class="planner-section__head">
+          <div class="planner-section__head planner-section__head--new">
+            <span class="planner-section__bar" />
             <h3>新生排课</h3>
           </div>
 
-          <div class="planner-mode-grid planner-mode-grid--single">
-            <button type="button" class="planner-mode" @click="openCreateDialog()">
-              <div class="planner-mode__body">
+          <div class="planner-card-grid planner-card-grid--new">
+            <button type="button" class="planner-card planner-card--blue planner-card--full" @click="openCreateDialog()">
+              <span class="planner-card__icon">
+                <el-icon><Calendar /></el-icon>
+              </span>
+              <span class="planner-card__content">
                 <strong>生成课表</strong>
-                <small>选择学生后开始排课。</small>
-              </div>
-              <div v-if="selectedCreateStudent" class="planner-mode__meta">
-                {{ selectedCreateStudent.name }} · {{ selectedCreateStudent.grade }} · 可排 {{ getSchedulableLessons(selectedCreateStudent) }} 节
-              </div>
+                <small>选择学生并自动排课。</small>
+                <span v-if="selectedCreateStudent" class="planner-card__meta">
+                  {{ selectedCreateStudent.name }} · {{ selectedCreateStudent.grade }} · 可排 {{ getSchedulableLessons(selectedCreateStudent) }} 节
+                </span>
+              </span>
             </button>
 
-            <button type="button" class="planner-mode" @click="openSingleDialog()">
-              <div class="planner-mode__body">
+            <button type="button" class="planner-card planner-card--purple planner-card--full" @click="openSingleDialog()">
+              <span class="planner-card__icon">
+                <el-icon><UserFilled /></el-icon>
+              </span>
+              <span class="planner-card__content">
                 <strong>按次排课</strong>
-                <small>录入单节课程并同步写入本次收费。</small>
-              </div>
-              <div v-if="selectedSingleStudent" class="planner-mode__meta">
-                {{ selectedSingleStudent.name }} · {{ selectedSingleStudent.grade }} · {{ singleForm.lessonPrice ? formatAmount(singleForm.lessonPrice) : '待填金额' }}
-              </div>
+                <small>接入单节课程并排入本次课表。</small>
+                <span v-if="selectedSingleStudent" class="planner-card__meta">
+                  {{ selectedSingleStudent.name }} · {{ selectedSingleStudent.grade }} · {{ singleForm.lessonPrice ? formatAmount(singleForm.lessonPrice) : '待填金额' }}
+                </span>
+              </span>
             </button>
           </div>
         </section>
 
         <section class="planner-section">
-          <div class="planner-section__head">
+          <div class="planner-section__head planner-section__head--adjust">
+            <span class="planner-section__bar" />
             <h3>调课处理</h3>
           </div>
 
-          <div class="planner-mode-grid planner-mode-grid--adjust">
-            <button type="button" class="planner-mode" @click="openAdjustDialog('temporary')">
-              <div class="planner-mode__body">
+          <div class="planner-card-grid planner-card-grid--adjust">
+            <button type="button" class="planner-card planner-card--green planner-card--full" @click="openAdjustDialog('temporary')">
+              <span class="planner-card__icon">
+                <el-icon><RefreshRight /></el-icon>
+              </span>
+              <span class="planner-card__content">
                 <strong>补课</strong>
-                <small>补入一节临时课程。</small>
-              </div>
+                <small>接入一节课程进行补课。</small>
+              </span>
             </button>
 
-            <button type="button" class="planner-mode" @click="openAdjustDialog('leave')">
-              <div class="planner-mode__body">
+            <button type="button" class="planner-card planner-card--amber planner-card--full" @click="openAdjustDialog('leave')">
+              <span class="planner-card__icon">
+                <el-icon><Setting /></el-icon>
+              </span>
+              <span class="planner-card__content">
                 <strong>请假顺延</strong>
-                <small>最近一节课程顺延到末尾。</small>
-              </div>
+                <small>将最近一节课程顺延到末尾。</small>
+              </span>
             </button>
 
-            <button type="button" class="planner-mode" @click="openAdjustDialog('reschedule')">
-              <div class="planner-mode__body">
+            <button type="button" class="planner-card planner-card--rose" @click="openAdjustDialog('reschedule')">
+              <span class="planner-card__icon">
+                <el-icon><AlarmClock /></el-icon>
+              </span>
+              <span class="planner-card__content">
                 <strong>单节改时间</strong>
-                <small>调整一节课的日期和时间。</small>
-              </div>
+                <small>仅调整一节课的日期和时间。</small>
+              </span>
             </button>
 
-            <button type="button" class="planner-mode" @click="openAdjustDialog('future')">
-              <div class="planner-mode__body">
+            <button type="button" class="planner-card planner-card--indigo" @click="openAdjustDialog('future')">
+              <span class="planner-card__icon">
+                <el-icon><EditPen /></el-icon>
+              </span>
+              <span class="planner-card__content">
                 <strong>后续改时间</strong>
                 <small>统一调整后续课程时间。</small>
-              </div>
+              </span>
             </button>
           </div>
         </section>
       </div>
-    </el-card>
+    </div>
 
     <el-dialog
       v-model="createDialogVisible"
@@ -595,7 +613,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import PageHeader from '../components/common/PageHeader.vue';
+import { AlarmClock, Calendar, EditPen, RefreshRight, Setting, UserFilled } from '@element-plus/icons-vue';
 import { frequencyOptions, weekdayOptions } from '../constants/options';
 import { api } from '../services/api';
 import {
@@ -1385,42 +1403,70 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.feature-card {
-  border-color: rgba(226, 232, 240, 0.9);
-  background: #ffffff;
-  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.04);
+.planner-page {
+  position: relative;
+  overflow: hidden;
+  padding: 18px 18px 14px;
+  background:
+    radial-gradient(circle at top left, rgba(191, 219, 254, 0.55), transparent 28%),
+    radial-gradient(circle at right 20%, rgba(221, 214, 254, 0.4), transparent 22%),
+    linear-gradient(180deg, #f8fbff 0%, #ffffff 48%, #f8fbff 100%);
+  border-radius: 28px;
 }
 
-.feature-card--planner {
-  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.04);
+.planner-page > * {
+  position: relative;
+  z-index: 1;
 }
 
-.feature-card :deep(.el-card__body) {
+.planner-page :deep(.page-header) {
+  margin-bottom: 18px;
+}
+
+.planner-page :deep(.page-header__content) {
+  max-width: 640px;
+}
+
+.planner-page :deep(.page-header h2) {
+  margin: 0;
+  color: #15213b;
+  font-size: 30px;
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.planner-page :deep(.page-header p) {
+  margin-top: 8px;
+  color: #59708f;
+  font-size: 16px;
+  line-height: 1.7;
+  font-weight: 400;
+}
+
+.planner-shell {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
-.feature-card--planner :deep(.el-alert) {
-  border-radius: 18px;
-  border: 1px solid rgba(248, 113, 113, 0.24);
+.planner-alert {
+  border-radius: 24px;
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.08);
 }
 
 .planner-stack {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 28px;
 }
 
 .planner-section {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 24px;
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  border-radius: 20px;
-  background: #ffffff;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.03);
+  gap: 16px;
 }
 
 .planner-section__head {
@@ -1429,94 +1475,203 @@ onMounted(async () => {
   gap: 12px;
 }
 
-.planner-section__head h3 {
-  margin: 0;
-  font-size: 22px;
-  line-height: 1.1;
-  font-weight: 700;
-  letter-spacing: -0.03em;
+.planner-section__bar {
+  display: block;
+  width: 6px;
+  height: 34px;
+  border-radius: 999px;
+  flex-shrink: 0;
 }
 
-.planner-mode-grid {
+.planner-section__head--new .planner-section__bar,
+.planner-section__head--adjust .planner-section__bar {
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+  box-shadow: 0 14px 28px rgba(5, 150, 105, 0.18);
+}
+
+.planner-section__head h3 {
+  margin: 0;
+  color: #18243f;
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.planner-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 16px;
 }
 
-.planner-mode-grid--single {
+.planner-card-grid--new {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.planner-mode-grid--adjust {
+.planner-card-grid--new .planner-card--full {
+  grid-column: auto;
+}
+
+.planner-card-grid--adjust {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.planner-mode {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-height: 156px;
-  padding: 22px;
-  border: 1px solid rgba(226, 232, 240, 0.92);
-  border-radius: 18px;
-  background: #ffffff;
+.planner-card {
+  --planner-icon-gradient: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  --planner-icon-shadow: rgba(37, 99, 235, 0.28);
+  --planner-meta-bg: rgba(219, 234, 254, 0.8);
+  --planner-meta-border: rgba(96, 165, 250, 0.28);
+  --planner-meta-color: #1d4ed8;
+  position: relative;
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  min-height: 138px;
+  padding: 22px 22px 20px;
+  border: 1px solid rgba(203, 213, 225, 0.7);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(248, 250, 252, 0.9) 100%);
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.03);
-  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 14px 26px rgba(148, 163, 184, 0.1);
+  transition: transform 300ms ease, box-shadow 300ms ease, border-color 300ms ease, background 300ms ease;
+  overflow: hidden;
 }
 
-.planner-mode:hover {
-  transform: translateY(-1px);
-  border-color: rgba(203, 213, 225, 0.94);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+.planner-card::after {
+  content: '';
+  position: absolute;
+  right: -42px;
+  bottom: -58px;
+  width: 190px;
+  height: 190px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0) 70%);
+  pointer-events: none;
+  opacity: 0.7;
 }
 
-.planner-mode:focus-visible {
+.planner-card--full {
+  grid-column: 1 / -1;
+}
+
+.planner-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(148, 163, 184, 0.56);
+  box-shadow: 0 18px 32px rgba(148, 163, 184, 0.15);
+}
+
+.planner-card:focus-visible {
   outline: none;
-  border-color: rgba(148, 163, 184, 0.78);
+  transform: translateY(-2px);
   box-shadow:
-    0 0 0 4px rgba(226, 232, 240, 0.88),
-    0 10px 24px rgba(15, 23, 42, 0.06);
+    0 0 0 4px rgba(191, 219, 254, 0.28),
+    0 18px 32px rgba(148, 163, 184, 0.15);
 }
 
-.planner-mode__body {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: 34ch;
+.planner-card:hover .planner-card__icon,
+.planner-card:focus-visible .planner-card__icon {
+  transform: scale(1.03);
+  box-shadow: 0 14px 24px var(--planner-icon-shadow);
 }
 
-.planner-mode strong {
-  display: block;
-  margin: 0;
-  color: #0f172a;
-  font-size: 20px;
-  line-height: 1.16;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-}
-
-.planner-mode small {
-  display: block;
-  color: #4f5f75;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.planner-mode__meta {
+.planner-card__icon {
   display: inline-flex;
   align-items: center;
-  align-self: flex-start;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  background: var(--planner-icon-gradient);
+  color: #ffffff;
+  box-shadow: 0 12px 22px var(--planner-icon-shadow);
+  transition: transform 300ms ease, box-shadow 300ms ease;
+}
+
+.planner-card__icon :deep(.el-icon) {
+  font-size: 24px;
+}
+
+.planner-card__content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  height: 100%;
+  gap: 8px;
+  padding-top: 2px;
+  min-width: 0;
+}
+
+.planner-card strong {
+  display: block;
+  margin: 0;
+  color: #16213c;
+  font-size: 20px;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.planner-card small {
+  display: block;
+  max-width: 34ch;
+  color: #556b87;
+  font-size: 14px;
+  line-height: 1.7;
+  font-weight: 400;
+}
+
+.planner-card__meta {
+  display: inline-flex;
+  align-items: center;
   margin-top: auto;
-  padding: 8px 12px;
+  max-width: 100%;
+  padding: 7px 11px;
   border-radius: 999px;
-  border: 1px solid rgba(226, 232, 240, 0.88);
-  background: rgba(248, 250, 252, 0.94);
-  color: #475569;
+  border: 1px solid var(--planner-meta-border);
+  background: var(--planner-meta-bg);
+  color: var(--planner-meta-color);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.5;
+  white-space: normal;
+}
+
+.planner-card--blue {
+  --planner-icon-gradient: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  --planner-icon-shadow: rgba(37, 99, 235, 0.34);
+  --planner-meta-bg: rgba(219, 234, 254, 0.82);
+  --planner-meta-border: rgba(96, 165, 250, 0.3);
+  --planner-meta-color: #1d4ed8;
+}
+
+.planner-card--purple {
+  --planner-icon-gradient: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
+  --planner-icon-shadow: rgba(124, 58, 237, 0.32);
+  --planner-meta-bg: rgba(243, 232, 255, 0.84);
+  --planner-meta-border: rgba(168, 85, 247, 0.28);
+  --planner-meta-color: #7c3aed;
+}
+
+.planner-card--green {
+  --planner-icon-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  --planner-icon-shadow: rgba(5, 150, 105, 0.28);
+}
+
+.planner-card--amber {
+  --planner-icon-gradient: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
+  --planner-icon-shadow: rgba(249, 115, 22, 0.3);
+}
+
+.planner-card--rose {
+  --planner-icon-gradient: linear-gradient(135deg, #ff0066 0%, #e11d48 100%);
+  --planner-icon-shadow: rgba(225, 29, 72, 0.28);
+}
+
+.planner-card--indigo {
+  --planner-icon-gradient: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  --planner-icon-shadow: rgba(79, 70, 229, 0.3);
 }
 
 .schedule-dialog :deep(.el-dialog) {
@@ -1894,6 +2049,26 @@ onMounted(async () => {
 }
 
 @media (max-width: 1200px) {
+  .planner-page {
+    padding: 16px 16px 12px;
+    border-radius: 24px;
+  }
+
+  .planner-card {
+    min-height: 132px;
+    padding: 20px;
+  }
+
+  .planner-card__icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+  }
+
+  .planner-card__icon :deep(.el-icon) {
+    font-size: 22px;
+  }
+
   .planner-section__head,
   .dialog-inline-summary,
   .dialog-block__subhead {
@@ -1907,20 +2082,37 @@ onMounted(async () => {
 }
 
 @media (max-width: 900px) {
-  .planner-section {
+  .planner-page :deep(.page-header) {
+    margin-bottom: 16px;
+  }
+
+  .planner-page :deep(.page-header p) {
+    margin-top: 8px;
+    font-size: 15px;
+  }
+
+  .planner-card {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    min-height: 0;
     padding: 18px;
   }
 
   .dialog-grid,
-  .planner-mode-grid,
-  .planner-mode-grid--adjust,
+  .planner-card-grid--new,
+  .planner-card-grid--adjust,
   .weekday-chip-grid,
   .create-mode-toggle {
     grid-template-columns: 1fr;
   }
 
-  .planner-mode {
-    min-height: 176px;
+  .planner-card--full {
+    grid-column: auto;
+  }
+
+  .planner-card__content {
+    gap: 8px;
+    padding-top: 0;
   }
 
   .page-header__actions {
