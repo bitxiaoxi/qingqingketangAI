@@ -84,6 +84,12 @@ export const api = {
       body: JSON.stringify(body)
     });
   },
+  createSingleLessonSchedule(studentId, body) {
+    return request(`/api/schedules/students/${studentId}/single-lesson`, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+  },
   createTemporaryLesson(studentId, body) {
     return request(`/api/schedules/students/${studentId}/temporary-lesson`, {
       method: 'POST',

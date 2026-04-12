@@ -21,6 +21,16 @@
                 {{ selectedCreateStudent.name }} · {{ selectedCreateStudent.grade }} · 可排 {{ getSchedulableLessons(selectedCreateStudent) }} 节
               </div>
             </button>
+
+            <button type="button" class="planner-mode" @click="openSingleDialog()">
+              <div class="planner-mode__body">
+                <strong>按次排课</strong>
+                <small>录入单节课程并同步写入本次收费。</small>
+              </div>
+              <div v-if="selectedSingleStudent" class="planner-mode__meta">
+                {{ selectedSingleStudent.name }} · {{ selectedSingleStudent.grade }} · {{ singleForm.lessonPrice ? formatAmount(singleForm.lessonPrice) : '待填金额' }}
+              </div>
+            </button>
           </div>
         </section>
 
@@ -455,6 +465,129 @@
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="singleDialogVisible"
+      title="按次排课"
+      width="760px"
+      destroy-on-close
+      class="schedule-dialog"
+    >
+      <el-form label-position="top" class="dialog-form">
+        <section class="dialog-block dialog-block--primary">
+          <div class="dialog-block__head">
+            <h4>基础信息</h4>
+          </div>
+
+          <el-form-item label="学生" required>
+            <el-select v-model="singleForm.studentId" filterable placeholder="请选择学生">
+              <el-option
+                v-for="student in students"
+                :key="student.id"
+                :label="`${student.name} · ${student.grade}`"
+                :value="student.id"
+              />
+            </el-select>
+          </el-form-item>
+
+          <div v-if="selectedSingleStudent" class="dialog-inline-summary">
+            <strong>{{ selectedSingleStudent.name }} · {{ selectedSingleStudent.grade }}</strong>
+            <span>保存后会新增 1 节课，并同步写入 1 条收费流水</span>
+          </div>
+
+          <div class="dialog-block__subhead">
+            <strong>排课方式</strong>
+          </div>
+
+          <div class="create-mode-toggle">
+            <button
+              type="button"
+              class="create-mode-toggle__item"
+              :data-active="!isSameClassSingleMode"
+              @click="setSingleClassMode('solo')"
+            >
+              单独上课
+            </button>
+            <button
+              type="button"
+              class="create-mode-toggle__item"
+              :data-active="isSameClassSingleMode"
+              @click="setSingleClassMode('sameClass')"
+            >
+              加入同班
+            </button>
+          </div>
+
+          <el-form-item v-if="isSameClassSingleMode" label="同班学生" required>
+            <el-select v-model="singleForm.sameClassStudentId" filterable placeholder="请选择同班学生">
+              <el-option
+                v-for="student in singleSameClassCandidates"
+                :key="student.id"
+                :label="`${student.name} · ${student.grade}`"
+                :value="student.id"
+              />
+            </el-select>
+          </el-form-item>
+        </section>
+
+        <section class="dialog-block">
+          <div class="dialog-block__head">
+            <h4>上课安排</h4>
+          </div>
+
+          <el-form-item label="上课日期" required>
+            <el-date-picker
+              v-model="singleForm.lessonDate"
+              type="date"
+              format="YYYY-MM-DD"
+              value-format="YYYY-MM-DD"
+              placeholder="选择上课日期"
+            />
+          </el-form-item>
+
+          <div class="dialog-grid">
+            <el-form-item label="开始时间" required>
+              <el-time-picker
+                v-model="singleForm.startTime"
+                value-format="HH:mm"
+                format="HH:mm"
+                placeholder="开始时间"
+              />
+            </el-form-item>
+
+            <el-form-item label="结束时间" required>
+              <el-time-picker
+                v-model="singleForm.endTime"
+                value-format="HH:mm"
+                format="HH:mm"
+                placeholder="结束时间"
+              />
+            </el-form-item>
+          </div>
+        </section>
+
+        <section class="dialog-block">
+          <div class="dialog-block__head">
+            <h4>收费信息</h4>
+          </div>
+
+          <el-form-item label="本次课收费金额（元）" required>
+            <el-input v-model="singleForm.lessonPrice" type="number" min="0.01" step="0.01" placeholder="200" />
+          </el-form-item>
+
+          <div class="adjustment-state">
+            {{ singleLessonSummary }}
+          </div>
+        </section>
+      </el-form>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="singleDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="singleCreating" @click="submitSingleForm">确认按次排课</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
   </section>
 </template>
 
@@ -467,6 +600,7 @@ import { frequencyOptions, weekdayOptions } from '../constants/options';
 import { api } from '../services/api';
 import {
   formatClock,
+  formatAmount,
   formatDateParam,
   formatLongDate,
   formatTimeRange,
@@ -482,6 +616,9 @@ const students = ref([]);
 const creating = ref(false);
 const createDialogVisible = ref(false);
 const createClassMode = ref('solo');
+const singleDialogVisible = ref(false);
+const singleCreating = ref(false);
+const singleClassMode = ref('solo');
 const adjustDialogVisible = ref(false);
 const adjustMode = ref('temporary');
 const adjustStudentId = ref(getRouteStudentId());
@@ -498,6 +635,14 @@ const createForm = reactive({
   startDate: formatDateParam(new Date()),
   startTime: '19:00',
   endTime: '20:30'
+});
+const singleForm = reactive({
+  studentId: getRouteStudentId(),
+  sameClassStudentId: null,
+  lessonDate: formatDateParam(new Date()),
+  startTime: '19:00',
+  endTime: '20:30',
+  lessonPrice: ''
 });
 const temporaryForm = reactive({
   lessonDate: formatDateParam(new Date()),
@@ -743,6 +888,16 @@ const sameClassCandidates = computed(() => {
 const selectedSameClassStudent = computed(() => {
   return students.value.find((student) => student.id === createForm.sameClassStudentId) ?? null;
 });
+const selectedSingleStudent = computed(() => {
+  return students.value.find((student) => student.id === singleForm.studentId) ?? null;
+});
+const isSameClassSingleMode = computed(() => singleClassMode.value === 'sameClass');
+const singleSameClassCandidates = computed(() => {
+  return students.value.filter((student) => student.id !== singleForm.studentId);
+});
+const selectedSingleSameClassStudent = computed(() => {
+  return students.value.find((student) => student.id === singleForm.sameClassStudentId) ?? null;
+});
 const sameClassSlotTemplates = computed(() => {
   return buildSameClassSlotTemplates(sameClassReferenceSchedules.value);
 });
@@ -781,6 +936,20 @@ const futureRescheduleCandidates = computed(() => {
 
 const temporaryTargetLabel = computed(() => {
   return buildSlotLabel(temporaryForm.lessonDate, temporaryForm.startTime, temporaryForm.endTime);
+});
+const singleLessonTargetLabel = computed(() => {
+  return buildSlotLabel(singleForm.lessonDate, singleForm.startTime, singleForm.endTime);
+});
+const singleLessonSummary = computed(() => {
+  const parts = [
+    `本次课时间：${singleLessonTargetLabel.value}`,
+    `收费金额：${singleForm.lessonPrice ? formatAmount(singleForm.lessonPrice) : '待填写'}`
+  ];
+  if (isSameClassSingleMode.value) {
+    parts.push(`同班学生：${selectedSingleSameClassStudent.value ? selectedSingleSameClassStudent.value.name : '待选择'}`);
+  }
+  parts.push('保存后会同步写入课表和收费流水');
+  return parts.join('；');
 });
 const leaveTargetSchedule = computed(() => {
   return buildNextRecurringSchedule(plannedSchedules.value);
@@ -828,12 +997,29 @@ const resetCreateForm = (studentId = null) => {
   loadingSameClassSchedules.value = false;
 };
 
+const resetSingleForm = (studentId = null) => {
+  singleClassMode.value = 'solo';
+  singleForm.studentId = studentId;
+  singleForm.sameClassStudentId = null;
+  singleForm.lessonDate = formatDateParam(new Date());
+  singleForm.startTime = '19:00';
+  singleForm.endTime = '20:30';
+  singleForm.lessonPrice = '';
+};
+
 const setCreateClassMode = (mode) => {
   createClassMode.value = mode;
   if (mode !== 'sameClass') {
     createForm.sameClassStudentId = null;
     sameClassReferenceSchedules.value = [];
     loadingSameClassSchedules.value = false;
+  }
+};
+
+const setSingleClassMode = (mode) => {
+  singleClassMode.value = mode;
+  if (mode !== 'sameClass') {
+    singleForm.sameClassStudentId = null;
   }
 };
 
@@ -857,6 +1043,11 @@ const resetAdjustForms = (studentId = getRouteStudentId(), mode = 'temporary') =
 const openCreateDialog = (studentId = getRouteStudentId()) => {
   resetCreateForm(studentId);
   createDialogVisible.value = true;
+};
+
+const openSingleDialog = (studentId = getRouteStudentId()) => {
+  resetSingleForm(studentId);
+  singleDialogVisible.value = true;
 };
 
 const openAdjustDialog = async (mode = 'temporary', studentId = getRouteStudentId()) => {
@@ -923,6 +1114,39 @@ const submitCreateForm = async () => {
     ElMessage.error(normalizeError(requestError, '排课失败'));
   } finally {
     creating.value = false;
+  }
+};
+
+const submitSingleForm = async () => {
+  if (!singleForm.studentId || !singleForm.lessonDate || !singleForm.startTime || !singleForm.endTime || !singleForm.lessonPrice) {
+    ElMessage.error('请完整填写按次排课信息');
+    return;
+  }
+  if (isSameClassSingleMode.value && !singleForm.sameClassStudentId) {
+    ElMessage.error('请选择同班学生');
+    return;
+  }
+  if (Number(singleForm.lessonPrice) <= 0) {
+    ElMessage.error('本次课收费金额需大于 0');
+    return;
+  }
+
+  singleCreating.value = true;
+  try {
+    await api.createSingleLessonSchedule(singleForm.studentId, {
+      sameClassStudentId: isSameClassSingleMode.value ? singleForm.sameClassStudentId : null,
+      lessonDate: singleForm.lessonDate,
+      startTime: singleForm.startTime,
+      endTime: singleForm.endTime,
+      lessonPrice: Number(singleForm.lessonPrice)
+    });
+    await loadStudents();
+    singleDialogVisible.value = false;
+    ElMessage.success('按次排课已保存');
+  } catch (requestError) {
+    ElMessage.error(normalizeError(requestError, '按次排课失败'));
+  } finally {
+    singleCreating.value = false;
   }
 };
 
@@ -1079,6 +1303,15 @@ watch(
 );
 
 watch(
+  () => singleForm.studentId,
+  (studentId) => {
+    if (studentId && studentId === singleForm.sameClassStudentId) {
+      singleForm.sameClassStudentId = null;
+    }
+  }
+);
+
+watch(
   () => [createDialogVisible.value, createClassMode.value, createForm.sameClassStudentId],
   async ([dialogVisible, createMode, sameClassStudentId]) => {
     if (!dialogVisible || createMode !== 'sameClass' || !sameClassStudentId) {
@@ -1140,6 +1373,7 @@ watch(
   () => route.query.studentId,
   (studentId) => {
     createForm.studentId = studentId ? Number(studentId) : null;
+    singleForm.studentId = studentId ? Number(studentId) : null;
     adjustStudentId.value = studentId ? Number(studentId) : null;
   },
   { immediate: true }
@@ -1210,7 +1444,7 @@ onMounted(async () => {
 }
 
 .planner-mode-grid--single {
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .planner-mode-grid--adjust {

@@ -33,14 +33,15 @@ public interface StudentPaymentMapper extends BaseMapper<StudentPayment> {
             "SELECT p.*",
             "FROM student_payments p",
             "LEFT JOIN (",
-            "    SELECT payment_id, COUNT(*) AS consumedCount",
+            "    SELECT payment_id, COUNT(*) AS allocatedCount",
             "    FROM student_schedules",
-            "    WHERE status = 'COMPLETED' AND payment_id IS NOT NULL",
+            "    WHERE payment_id IS NOT NULL",
+            "      AND status IN ('PLANNED', 'COMPLETED')",
             "    GROUP BY payment_id",
             ") c ON c.payment_id = p.id",
             "WHERE p.student_id = #{studentId}",
             "  AND p.lesson_count > 0",
-            "  AND COALESCE(c.consumedCount, 0) < p.lesson_count",
+            "  AND COALESCE(c.allocatedCount, 0) < p.lesson_count",
             "ORDER BY p.paid_at ASC, p.id ASC",
             "LIMIT 1 FOR UPDATE"
     })

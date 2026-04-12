@@ -1,9 +1,6 @@
 <template>
   <section class="page-stack referral-page">
-    <PageHeader
-      title="转介绍管理"
-      description="绑定学生之间的转介绍关系，系统会自动给介绍人赠送 1 节课并写入课时流水。"
-    />
+    <PageHeader title="转介绍管理" />
 
     <div class="referral-stack">
       <el-card shadow="never" class="panel-card referral-summary-card">
@@ -20,7 +17,6 @@
         <div class="panel-head referral-bind-card__head">
           <div>
             <h3>绑定转介绍</h3>
-            <p>选择介绍人与被介绍人，保存后会自动为介绍人新增一笔 0 元 1 节的奖励课时。</p>
           </div>
           <el-tag type="success" effect="plain" round>自动赠送 1 节课</el-tag>
         </div>

@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import javax.validation.Valid;
+import javax.validation.constraints.DecimalMin;
 import javax.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -156,6 +157,52 @@ public class StudentScheduleController {
                 .collect(Collectors.toList());
     }
 
+    @PostMapping("/students/{studentId}/single-lesson")
+    @Transactional
+    @ResponseStatus(HttpStatus.CREATED)
+    public ScheduleView createSingleLesson(@PathVariable Long studentId,
+                                           @Valid @RequestBody SingleLessonScheduleRequest request) {
+        Student student = lockStudent(studentId);
+        validateSlotRequest(request);
+
+        Student sameClassStudent = resolveSameClassStudent(studentId, request.getSameClassStudentId());
+        LocalDateTime targetStart = LocalDateTime.of(request.getLessonDate(), request.getStartTime());
+        LocalDateTime targetEnd = LocalDateTime.of(request.getLessonDate(), request.getEndTime());
+        if (sameClassStudent != null) {
+            validateNoUnexpectedSameClassConflict(studentId, targetStart, targetEnd);
+        } else {
+            validateNoUnexpectedConflict(
+                    studentId,
+                    targetStart,
+                    targetEnd,
+                    null,
+                    "该学生在 %s 已经有同一时段课程，请勿重复排课");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        StudentPayment payment = new StudentPayment();
+        payment.setStudentId(studentId);
+        payment.setTuitionPaid(request.getLessonPrice());
+        payment.setLessonCount(1);
+        payment.setAvgFeePerLesson(request.getLessonPrice());
+        payment.setRemark(buildSingleLessonPaymentRemark(targetStart, targetEnd, sameClassStudent));
+        payment.setPaidAt(now);
+        studentPaymentMapper.insert(payment);
+
+        StudentSchedule schedule = new StudentSchedule();
+        schedule.setStudentId(studentId);
+        schedule.setSubject(resolveSingleLessonSubject(sameClassStudent));
+        schedule.setStartTime(targetStart);
+        schedule.setEndTime(targetEnd);
+        schedule.setStatus(STATUS_PLANNED);
+        schedule.setPaymentId(payment.getId());
+        schedule.setLessonPrice(request.getLessonPrice());
+        schedule.setCreatedAt(now);
+        studentScheduleService.save(schedule);
+
+        return toView(schedule, student.getName(), student.getGrade());
+    }
+
     private List<Integer> resolveWeekdays(ScheduleGenerateRequest request) {
         TreeSet<Integer> selected = new TreeSet<>();
         if (!CollectionUtils.isEmpty(request.getWeekdays())) {
@@ -225,6 +272,31 @@ public class StudentScheduleController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不能把学生加入自己的同班课程，请重新选择");
         }
         return requireStudent(sameClassStudentId);
+    }
+
+    private String resolveSingleLessonSubject(Student sameClassStudent) {
+        if (sameClassStudent == null) {
+            return DEFAULT_SUBJECT;
+        }
+        return studentScheduleMapper.findPlannedByStudentId(sameClassStudent.getId()).stream()
+                .map(StudentSchedule::getSubject)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .orElse(DEFAULT_SUBJECT);
+    }
+
+    private String buildSingleLessonPaymentRemark(LocalDateTime targetStart,
+                                                  LocalDateTime targetEnd,
+                                                  Student sameClassStudent) {
+        StringBuilder remark = new StringBuilder("按次排课");
+        if (sameClassStudent != null && StringUtils.hasText(sameClassStudent.getName())) {
+            remark.append("（同班：").append(sameClassStudent.getName()).append("）");
+        }
+        String slot = formatSlot(targetStart, targetEnd);
+        if (StringUtils.hasText(slot)) {
+            remark.append(" ").append(slot);
+        }
+        return remark.toString();
     }
 
     private List<WeeklySlotTemplate> resolveSameClassTemplates(Student sameClassStudent) {
@@ -335,12 +407,19 @@ public class StudentScheduleController {
     private void validateNoUnexpectedSameClassConflict(Long targetStudentId,
                                                        LocalDateTime targetStart,
                                                        LocalDateTime targetEnd) {
-        validateNoUnexpectedConflict(
-                targetStudentId,
-                targetStart,
-                targetEnd,
-                null,
-                "该学生在 %s 已经有同一时段课程，请勿重复加入同班");
+        StudentSchedule unexpectedConflict = studentScheduleMapper.findConflicts(targetStart, targetEnd).stream()
+                .filter(conflict -> isUnexpectedSameClassConflict(conflict, targetStudentId, targetStart, targetEnd))
+                .findFirst()
+                .orElse(null);
+        if (unexpectedConflict == null) {
+            return;
+        }
+        if (sameSlot(unexpectedConflict, targetStart, targetEnd)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    String.format("该学生在 %s 已经有同一时段课程，请勿重复加入同班", formatSlot(targetStart, targetEnd)));
+        }
+        throw buildConflictException(unexpectedConflict);
     }
 
     /**
@@ -403,14 +482,24 @@ public class StudentScheduleController {
             if (balance.getRemainingLessons() <= 0) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该学生剩余课时不足，无法销课");
             }
-            StudentPayment payment = studentPaymentMapper.findNextConsumablePayment(schedule.getStudentId());
+            StudentPayment payment = null;
+            if (schedule.getPaymentId() != null) {
+                payment = studentPaymentMapper.selectById(schedule.getPaymentId());
+                if (payment == null || !Objects.equals(payment.getStudentId(), schedule.getStudentId())) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "课程关联的收费记录不存在，无法销课");
+                }
+            } else {
+                payment = studentPaymentMapper.findNextConsumablePayment(schedule.getStudentId());
+            }
             if (payment == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该学生暂无可核销的缴费批次，请先录入有效课时");
             }
 
             LocalDateTime now = LocalDateTime.now();
             schedule.setPaymentId(payment.getId());
-            schedule.setLessonPrice(payment.getAvgFeePerLesson() == null ? BigDecimal.ZERO : payment.getAvgFeePerLesson());
+            if (schedule.getLessonPrice() == null) {
+                schedule.setLessonPrice(payment.getAvgFeePerLesson() == null ? BigDecimal.ZERO : payment.getAvgFeePerLesson());
+            }
             schedule.setConsumedAt(now);
             schedule.setStatus(STATUS_COMPLETED);
             studentScheduleService.updateById(schedule);
@@ -431,8 +520,6 @@ public class StudentScheduleController {
 
         if (STATUS_COMPLETED.equalsIgnoreCase(schedule.getStatus())) {
             schedule.setStatus(STATUS_PLANNED);
-            schedule.setPaymentId(null);
-            schedule.setLessonPrice(null);
             schedule.setConsumedAt(null);
             studentScheduleService.updateById(schedule);
         }
@@ -470,6 +557,8 @@ public class StudentScheduleController {
         addedSchedule.setStartTime(targetStart);
         addedSchedule.setEndTime(targetEnd);
         addedSchedule.setStatus(STATUS_PLANNED);
+        addedSchedule.setPaymentId(lastSchedule.getPaymentId());
+        addedSchedule.setLessonPrice(lastSchedule.getLessonPrice());
         addedSchedule.setCreatedAt(LocalDateTime.now());
         studentScheduleService.save(addedSchedule);
         studentScheduleService.removeById(lastSchedule.getId());
@@ -519,6 +608,8 @@ public class StudentScheduleController {
         addedSchedule.setStartTime(generatedSlot.getStartTime());
         addedSchedule.setEndTime(generatedSlot.getEndTime());
         addedSchedule.setStatus(STATUS_PLANNED);
+        addedSchedule.setPaymentId(removedSchedule.getPaymentId());
+        addedSchedule.setLessonPrice(removedSchedule.getLessonPrice());
         addedSchedule.setCreatedAt(LocalDateTime.now());
         studentScheduleService.save(addedSchedule);
         studentScheduleService.removeById(removedSchedule.getId());
@@ -798,6 +889,16 @@ public class StudentScheduleController {
                                          Long targetStudentId,
                                          LocalDateTime targetStart,
                                          LocalDateTime targetEnd) {
+        if (sameSlot(conflict, targetStart, targetEnd)) {
+            return conflict.getStudentId() != null && conflict.getStudentId().equals(targetStudentId);
+        }
+        return true;
+    }
+
+    private boolean isUnexpectedSameClassConflict(StudentSchedule conflict,
+                                                  Long targetStudentId,
+                                                  LocalDateTime targetStart,
+                                                  LocalDateTime targetEnd) {
         if (sameSlot(conflict, targetStart, targetEnd)) {
             return conflict.getStudentId() != null && conflict.getStudentId().equals(targetStudentId);
         }
@@ -1128,6 +1229,30 @@ public class StudentScheduleController {
 
         public void setEndTime(LocalTime endTime) {
             this.endTime = endTime;
+        }
+    }
+
+    public static class SingleLessonScheduleRequest extends ScheduleSlotRequest {
+        private Long sameClassStudentId;
+
+        @NotNull(message = "请输入本次课收费金额")
+        @DecimalMin(value = "0.01", inclusive = true, message = "本次课收费金额需大于0")
+        private BigDecimal lessonPrice;
+
+        public Long getSameClassStudentId() {
+            return sameClassStudentId;
+        }
+
+        public void setSameClassStudentId(Long sameClassStudentId) {
+            this.sameClassStudentId = sameClassStudentId;
+        }
+
+        public BigDecimal getLessonPrice() {
+            return lessonPrice;
+        }
+
+        public void setLessonPrice(BigDecimal lessonPrice) {
+            this.lessonPrice = lessonPrice;
         }
     }
 
